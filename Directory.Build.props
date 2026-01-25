@@ -1,0 +1,16 @@
+<Project>
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Authors>ShaRPC Contributors</Authors>
+    <Company>ShaRPC</Company>
+    <Product>ShaRPC</Product>
+    <Description>High-performance, transport-agnostic RPC framework for C#</Description>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+</Project>
