@@ -55,6 +55,16 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
                 ShaRpcServiceAttributeName,
                 predicate: static (node, _) => node is InterfaceDeclarationSyntax,
                 transform: static (ctx, ct) => ServiceModelFactory.GetServiceResult(ctx, ct))
+            .WithTrackingName("RawServiceResults");
+
+        var existingTypes = context.CompilationProvider
+            .Select(static (compilation, ct) => ExistingTypeIndex.Create(compilation, ct))
+            .WithTrackingName("ExistingTypes");
+
+        results = results
+            .Combine(existingTypes)
+            .Select(static (pair, ct) =>
+                GeneratedTypeCollisionValidator.Apply(pair.Left, pair.Right, ct))
             .WithTrackingName("ServiceResults");
 
         var errors = results

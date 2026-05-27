@@ -1,48 +1,78 @@
-using Microsoft.CodeAnalysis;
+using System.Threading;
 
 namespace ShaRPC.SourceGenerator;
 
 internal static class GeneratedTypeCollisionValidator
 {
-    public static string? GetCollisionReason(INamedTypeSymbol interfaceSymbol, Compilation compilation)
+    public static ServiceResult Apply(ServiceResult result, ExistingTypeIndex existingTypes, CancellationToken ct)
     {
-        var ns = interfaceSymbol.ContainingNamespace.IsGlobalNamespace
-            ? string.Empty
-            : interfaceSymbol.ContainingNamespace.ToDisplayString();
-        var serviceName = NamingHelpers.StripInterfacePrefix(interfaceSymbol.Name);
+        if (result.Model is null)
+        {
+            return result;
+        }
+
+        var model = result.Model;
+        var serviceName = NamingHelpers.StripInterfacePrefix(model.InterfaceName);
 
         var proxyName = serviceName + "Proxy";
-        if (TypeExists(compilation, ns, proxyName))
+        var proxy = existingTypes.Find(model.Namespace, proxyName, ct);
+        if (proxy is not null)
         {
-            return $"generated proxy type '{proxyName}' would collide with an existing type";
+            return RejectedService(
+                model,
+                $"generated proxy type '{proxyName}' would collide with an existing type",
+                proxy.Value.Location);
         }
 
         var dispatcherName = serviceName + "Dispatcher";
-        if (TypeExists(compilation, ns, dispatcherName))
+        var dispatcher = existingTypes.Find(model.Namespace, dispatcherName, ct);
+        if (dispatcher is not null)
         {
-            return $"generated dispatcher type '{dispatcherName}' would collide with an existing type";
+            return RejectedService(
+                model,
+                $"generated dispatcher type '{dispatcherName}' would collide with an existing type",
+                dispatcher.Value.Location);
         }
 
-        if (NamingHelpers.CanGenerateAsyncSiblingInterface(interfaceSymbol.Name))
+        if (NamingHelpers.CanGenerateAsyncSiblingInterface(model.InterfaceName))
         {
-            var siblingName = NamingHelpers.AsyncSiblingInterfaceName(interfaceSymbol.Name);
-            if (TypeExists(compilation, ns, siblingName))
+            var siblingName = NamingHelpers.AsyncSiblingInterfaceName(model.InterfaceName);
+            var sibling = existingTypes.Find(model.Namespace, siblingName, ct);
+            if (sibling is not null)
             {
-                return $"generated async sibling interface '{siblingName}' would collide with an existing type";
+                return RejectedService(
+                    model,
+                    $"generated async sibling interface '{siblingName}' would collide with an existing type",
+                    sibling.Value.Location);
             }
         }
 
-        if (compilation.GetTypeByMetadataName("ShaRPC.Generated.ShaRpcGeneratedExtensions") is not null)
+        var extensions = existingTypes.Find("ShaRPC.Generated", "ShaRpcGeneratedExtensions", ct);
+        if (extensions is not null)
         {
-            return "generated extension type 'ShaRPC.Generated.ShaRpcGeneratedExtensions' would collide with an existing type";
+            return RejectedService(
+                model,
+                "generated extension type 'ShaRPC.Generated.ShaRpcGeneratedExtensions' would collide with an existing type",
+                extensions.Value.Location);
         }
 
-        return null;
+        return result;
     }
 
-    private static bool TypeExists(Compilation compilation, string ns, string typeName)
-    {
-        var metadataName = string.IsNullOrEmpty(ns) ? typeName : ns + "." + typeName;
-        return compilation.GetTypeByMetadataName(metadataName) is not null;
-    }
+    private static ServiceResult RejectedService(
+        ServiceModel model,
+        string reason,
+        DiagnosticLocation location) =>
+        new(
+            Model: null,
+            Error: null,
+            MethodDiagnostics: EquatableArray<MethodDiagnostic>.Empty,
+            MethodLocations: EquatableArray<DiagnosticLocation>.Empty,
+            ServiceDiagnostic: new ServiceDiagnostic(GetDisplayName(model), reason, location));
+
+    private static string GetDisplayName(ServiceModel model) =>
+        string.IsNullOrEmpty(model.Namespace)
+            ? IdentifierHelpers.EscapeIdentifier(model.InterfaceName)
+            : IdentifierHelpers.EscapeNamespace(model.Namespace) + "." +
+                IdentifierHelpers.EscapeIdentifier(model.InterfaceName);
 }
