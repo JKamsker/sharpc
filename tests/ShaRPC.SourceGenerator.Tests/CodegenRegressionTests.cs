@@ -191,6 +191,33 @@ public class CodegenRegressionTests
     }
 
     [Fact]
+    public void NonPublicServiceInterface_ProducesSHARPC003_AndIsSkipped()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading.Tasks;
+
+            namespace Regress.InternalService
+            {
+                [ShaRpcService]
+                internal interface IInternal
+                {
+                    Task<int> CountAsync();
+                }
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var driver = GeneratorTestHelper.CreateDriver().RunGenerators(compilation);
+        var runResult = driver.GetRunResult();
+
+        runResult.Diagnostics.Should().Contain(d => d.Id == "SHARPC003" &&
+            d.GetMessage().Contains("service interfaces must be public"));
+        runResult.Results.Single().GeneratedSources
+            .Should().NotContain(g => g.HintName.Contains("IInternal"));
+    }
+
+    [Fact]
     public void ReservedKeywordParameterNames_AreEscaped()
     {
         // Regression for H1: a parameter named `default` (or any C# keyword) must be

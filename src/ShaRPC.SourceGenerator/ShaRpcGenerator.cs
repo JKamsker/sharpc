@@ -323,6 +323,17 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
                     "nested service interfaces are not supported; declare the interface at namespace scope"));
         }
 
+        if (interfaceSymbol.DeclaredAccessibility != Accessibility.Public)
+        {
+            return new ServiceResult(
+                Model: null,
+                Error: null,
+                MethodDiagnostics: EquatableArray<MethodDiagnostic>.Empty,
+                ServiceDiagnostic: new ServiceDiagnostic(
+                    displayName,
+                    "service interfaces must be public because generated proxy, dispatcher, and extension APIs are public"));
+        }
+
         ct.ThrowIfCancellationRequested();
 
         // Pick the service attribute (already guaranteed to be present by ForAttributeWithMetadataName).
