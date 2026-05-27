@@ -639,6 +639,80 @@ public class CodegenRegressionTests
     }
 
     /// <summary>
+    /// RPC dispatch is keyed only by wire method name. Overloads that keep the default
+    /// CLR name would produce duplicate switch cases and route incorrectly, so every
+    /// colliding method is diagnosed and emitted as a proxy stub.
+    /// </summary>
+    [Fact]
+    public void OverloadedServiceMethods_WithDefaultWireNames_AreDiagnosedAndOmittedFromDispatcher()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading.Tasks;
+
+            namespace Regress.OverloadDefault
+            {
+                [ShaRpcService]
+                public interface ILookup
+                {
+                    Task<int> GetAsync(int id);
+                    Task<string> GetAsync(string name);
+                }
+            }
+            """;
+
+        var (final, runResult) = Run(source);
+        AssertCompiles(final);
+
+        runResult.Diagnostics.Where(d => d.Id == "SHARPC002")
+            .Should().HaveCount(2, "both overloads share the same wire name and cannot be routed safely");
+
+        var dispatcher = runResult.Results.Single().GeneratedSources
+            .Single(g => g.HintName == GeneratorTestHelper.HintName(
+                "Regress.OverloadDefault", "ILookup", GeneratorTestHelper.GeneratedKind.Dispatcher))
+            .SourceText.ToString();
+        dispatcher.Should().NotContain("case \"GetAsync\":");
+    }
+
+    /// <summary>
+    /// Overloaded CLR method names are supported when the user gives each overload a
+    /// distinct wire name through <see cref="ShaRPC.Core.Attributes.ShaRpcMethodAttribute"/>.
+    /// </summary>
+    [Fact]
+    public void OverloadedServiceMethods_WithDistinctWireNames_GenerateDistinctDispatcherCases()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading.Tasks;
+
+            namespace Regress.OverloadNamed
+            {
+                [ShaRpcService]
+                public interface ILookup
+                {
+                    [ShaRpcMethod(Name = "GetById")]
+                    Task<int> GetAsync(int id);
+
+                    [ShaRpcMethod(Name = "GetByName")]
+                    Task<string> GetAsync(string name);
+                }
+            }
+            """;
+
+        var (final, runResult) = Run(source);
+        AssertCompiles(final);
+
+        runResult.Diagnostics.Should().NotContain(d => d.Id == "SHARPC002");
+
+        var dispatcher = runResult.Results.Single().GeneratedSources
+            .Single(g => g.HintName == GeneratorTestHelper.HintName(
+                "Regress.OverloadNamed", "ILookup", GeneratorTestHelper.GeneratedKind.Dispatcher))
+            .SourceText.ToString();
+        dispatcher.Should().Contain("case \"GetById\":");
+        dispatcher.Should().Contain("case \"GetByName\":");
+    }
+
+    /// <summary>
     /// Regression: <see cref="System.Threading.CancellationToken"/> parameters can be
     /// written through aliases and can appear before later payload parameters. The
     /// proxy must preserve the user's signature while excluding the token from the

@@ -457,6 +457,8 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
                 SubService: subService));
         }
 
+        MarkDuplicateWireNames(displayName, methods, methodDiagnostics);
+
         static string RefKindKeyword(RefKind kind) => kind switch
         {
             RefKind.Ref => "ref ",
@@ -474,6 +476,40 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
             Error: null,
             MethodDiagnostics: methodDiagnostics.ToEquatableArray(),
             ServiceDiagnostic: null);
+    }
+
+    private static void MarkDuplicateWireNames(
+        string interfaceName,
+        List<MethodModel> methods,
+        List<MethodDiagnostic> methodDiagnostics)
+    {
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var method in methods)
+        {
+            if (method.UnsupportedReason is not null)
+            {
+                continue;
+            }
+
+            counts.TryGetValue(method.RpcName, out var count);
+            counts[method.RpcName] = count + 1;
+        }
+
+        for (var i = 0; i < methods.Count; i++)
+        {
+            var method = methods[i];
+            if (method.UnsupportedReason is not null ||
+                !counts.TryGetValue(method.RpcName, out var count) ||
+                count < 2)
+            {
+                continue;
+            }
+
+            var reason =
+                $"wire method name '{method.RpcName}' is used by multiple service methods; give each overload a distinct [ShaRpcMethod(Name = ...)] value";
+            methods[i] = method with { UnsupportedReason = reason };
+            methodDiagnostics.Add(new MethodDiagnostic(interfaceName, method.Name, reason));
+        }
     }
 
     /// <summary>
