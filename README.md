@@ -1,15 +1,20 @@
 # ShaRPC
 
+[![ci](https://github.com/JKamsker/sharpc/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/JKamsker/sharpc/actions/workflows/ci.yml)
+
 A high-performance, transport-agnostic RPC framework for C# with source generator-based code generation, designed for Unity and .NET interoperability.
 
 ## Features
 
-- **Source Generator Based**: Compile-time proxy and dispatcher generation - no runtime reflection
-- **Unity Compatible**: Works with IL2CPP and AOT compilation
+- **Source Generator Based**: Compile-time proxy and dispatcher generation — no runtime reflection.
+- **Truly incremental generator**: value-equatable models, `ForAttributeWithMetadataName`, tracked steps. The IDE never re-runs unnecessary work, even across large edits.
+- **Async sibling interfaces**: every `[ShaRpcService]` automatically gains an `I{Name}Async` view so callers can pick a blocking or non-blocking entry point.
+- **Nested services**: a method returning another `[ShaRpcService]` interface returns a fully-working sub-proxy bound to a server-side instance — no DTO marshalling for live objects.
+- **Unity Compatible**: Works with IL2CPP and AOT compilation.
 - **Transport Agnostic**: TCP included, easily extensible to WebSocket, Steam, etc.
-- **Shared Contracts**: Same C# interfaces on client and server
-- **Fast Serialization**: MessagePack for efficient binary encoding
-- **Async/Await**: Full async support with cancellation tokens
+- **Shared Contracts**: Same C# interfaces on client and server.
+- **Fast Serialization**: MessagePack for efficient binary encoding.
+- **Async/Await**: Full async support with cancellation tokens.
 
 ## Quick Start
 
@@ -50,6 +55,59 @@ var gameService = client.CreateGameServiceProxy();
 var player = await gameService.JoinAsync("Player1");
 ```
 
+## Generator features at a glance
+
+### Async sibling interface
+
+Declare a synchronous method on a `[ShaRpcService]` interface and the generator
+emits a sibling interface so callers can avoid blocking:
+
+```csharp
+[ShaRpcService]
+public interface IInventoryService
+{
+    Player GetPlayer(string playerId);            // sync
+    Task<IPlayerInventory> OpenInventoryAsync(string playerId, CancellationToken ct = default);
+}
+
+// generated alongside, in the same namespace:
+public interface IInventoryServiceAsync
+{
+    Task<Player> GetPlayerAsync(string playerId, CancellationToken ct = default);
+    Task<IPlayerInventory> OpenInventoryAsync(string playerId, CancellationToken ct = default);
+}
+```
+
+The generated proxy class implements **both** interfaces. Existing async methods
+already match between the two views, so only sync members produce an extra
+overload.
+
+### Nested services
+
+A method whose return type is itself a `[ShaRpcService]` interface returns a
+generated sub-proxy bound to the server-side instance the root call produced.
+Subsequent calls on the sub-proxy go back to that exact object.
+
+```csharp
+[ShaRpcService] public interface IInventoryService
+{
+    Task<IPlayerInventory> OpenInventoryAsync(string playerId, CancellationToken ct = default);
+}
+
+[ShaRpcService] public interface IPlayerInventory
+{
+    Task<int> AddItemAsync(string itemId, int quantity, CancellationToken ct = default);
+    Task<IReadOnlyList<Item>> ListItemsAsync(CancellationToken ct = default);
+}
+
+// client:
+var inv = await inventoryProxy.OpenInventoryAsync("cleo");   // returns a real sub-proxy
+await inv.AddItemAsync("sword", 1);                          // routes back to the same server instance
+```
+
+See [`docs/design/nested-services.md`](docs/design/nested-services.md) for the
+wire protocol, lifetime model, and explicit non-goals.
+
 ## Project Structure
 
 ```
@@ -60,22 +118,46 @@ sharpc/
 │   ├── ShaRPC.Transports.Tcp/          # TCP transport implementation
 │   └── ShaRPC.Serializers.MessagePack/ # MessagePack serialization
 ├── samples/
-│   ├── Shared/                         # Example service definitions
-│   ├── Server/                         # Example server
-│   └── Client/                         # Example client
+│   ├── GameService/{Shared,Server,Client}/    # Original sample (TCP + MessagePack)
+│   └── Inventory/{Shared,Server,Client}/      # Async-sibling + nested-services demo
 ├── tests/
-│   └── ShaRPC.Tests/                   # Unit and integration tests
+│   ├── ShaRPC.Tests/                   # Core integration tests
+│   └── ShaRPC.SourceGenerator.Tests/   # Generator unit + snapshot + behavioural tests
 └── docs/
     ├── quick-start.md                  # Getting started guide
     ├── unity-integration.md            # Unity integration guide
-    └── api-reference.md                # API documentation
+    ├── api-reference.md                # API documentation
+    └── design/nested-services.md       # Nested-services design
 ```
+
+## Samples
+
+### `samples/GameService/`
+
+The classic player-state RPC scenario — register, move, perform actions. Good
+introduction to the framework's basic shape.
+
+### `samples/Inventory/`
+
+End-to-end demo of the **async sibling** and **nested services** features.
+Run the server in one terminal, the client in another:
+
+```bash
+dotnet run --project samples/Inventory/Server     # listens on :5051
+dotnet run --project samples/Inventory/Client     # connects, walks all three call paths
+```
+
+The client output shows a blocking sync call, a non-blocking call via the
+generated async sibling, and a sub-service obtained from the root that
+preserves server-side state across calls within a connection. See
+[`samples/Inventory/README.md`](samples/Inventory/README.md) for details.
 
 ## Documentation
 
 - [Quick Start Guide](docs/quick-start.md)
 - [Unity Integration Guide](docs/unity-integration.md)
 - [API Reference](docs/api-reference.md)
+- [Nested Services Design](docs/design/nested-services.md)
 
 ## Building
 
@@ -83,21 +165,50 @@ sharpc/
 # Build all projects
 dotnet build
 
-# Run tests
-dotnet test
+# Run generator tests (fast)
+dotnet test tests/ShaRPC.SourceGenerator.Tests
+
+# Run core integration tests
+dotnet test tests/ShaRPC.Tests
 
 # Run sample server
-dotnet run --project samples/Server
+dotnet run --project samples/GameService/Server
 
 # Run sample client (in another terminal)
-dotnet run --project samples/Client
+dotnet run --project samples/GameService/Client
 ```
+
+## NuGet packages
+
+CI publishes the four library packages as GitHub Actions artifacts on every
+build:
+
+| Package                              | Contents                                      |
+|--------------------------------------|-----------------------------------------------|
+| `ShaRPC.Core`                        | core abstractions + protocol                  |
+| `ShaRPC.SourceGenerator`             | analyzer (auto-loaded; no runtime dependency) |
+| `ShaRPC.Transports.Tcp`              | TCP server/client transport                   |
+| `ShaRPC.Serializers.MessagePack`     | MessagePack `ISerializer`                     |
+
+Download the latest `nuget-packages` artifact from
+[the CI run](https://github.com/JKamsker/sharpc/actions/workflows/ci.yml) to
+get `.nupkg` + `.snupkg` files. Versions are `1.0.0-ci.<run_number>` on every
+push; tag pushes (`vX.Y.Z`) are released under the tag's exact version.
 
 ## Requirements
 
-- **.NET Standard 2.1** for library projects (Unity 2021.3+)
-- **.NET 6.0+** for server projects (recommended: .NET 8.0+)
-- **MessagePack** 2.5.x
+- **.NET Standard 2.1** for library projects (Unity 2021.3+).
+- **.NET 6.0+** for server projects (recommended: .NET 8.0+).
+- **MessagePack** 2.5.x.
+
+## Diagnostics emitted by the generator
+
+| Id        | Severity | Meaning |
+|-----------|----------|---------|
+| SHARPC001 | Error    | Generator itself crashed while processing a service. |
+| SHARPC002 | Error    | Method has an unsupported shape (e.g. `ref`/`in`/`out` parameter). A throwing stub is emitted so the proxy still implements the interface. |
+| SHARPC003 | Error    | Service interface has an unsupported shape (generic or nested). Nothing is emitted for that service. |
+| SHARPC004 | Warning  | Async-sibling projection would collide with another method (e.g. a sync `Foo` next to an existing async `FooAsync`). The colliding row is dropped from the sibling. |
 
 ## Why ShaRPC?
 
@@ -108,6 +219,8 @@ dotnet run --project samples/Client
 | Transport agnostic    | Yes          | HTTP/2 only | WebSocket   | WebSocket only                                    |
 | Binary serialization  | MessagePack  | Protobuf    | JSON        | JSON/Binary streams                               |
 | Code generation       | Compile-time | Build step  | Runtime     | None                                              |
+| Async sibling         | Yes          | No          | No          | No                                                |
+| Nested service refs   | Yes          | No          | No          | No                                                |
 
 ## License
 
