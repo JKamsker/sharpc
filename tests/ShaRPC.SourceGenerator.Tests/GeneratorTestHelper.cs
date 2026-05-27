@@ -83,8 +83,34 @@ internal static class GeneratorTestHelper
     {
         var prefix = string.IsNullOrEmpty(@namespace)
             ? interfaceName
-            : @namespace.Replace('.', '_') + "_" + interfaceName;
+            : NamespaceIdentifierPrefix(@namespace) + "_" + interfaceName;
         var suffix = kind == GeneratedKind.Proxy ? "ShaRpcProxy" : "ShaRpcDispatcher";
         return $"{prefix}.{suffix}.g.cs";
+    }
+
+    private static string NamespaceIdentifierPrefix(string namespaceName)
+    {
+        var flattened = namespaceName.Replace('.', '_');
+        if (!namespaceName.Contains('_'))
+        {
+            return flattened;
+        }
+
+        return flattened + "__" + StableHash(namespaceName);
+    }
+
+    private static string StableHash(string value)
+    {
+        unchecked
+        {
+            ulong hash = 14695981039346656037;
+            foreach (var c in value)
+            {
+                hash ^= c;
+                hash *= 1099511628211;
+            }
+
+            return hash.ToString("x16");
+        }
     }
 }

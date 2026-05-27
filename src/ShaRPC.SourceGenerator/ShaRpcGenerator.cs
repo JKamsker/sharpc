@@ -230,7 +230,33 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
         {
             return model.InterfaceName;
         }
-        return model.Namespace.Replace('.', '_') + "_" + model.InterfaceName;
+        return NamespaceIdentifierPrefix(model.Namespace) + "_" + model.InterfaceName;
+    }
+
+    private static string NamespaceIdentifierPrefix(string namespaceName)
+    {
+        var flattened = namespaceName.Replace('.', '_');
+        if (namespaceName.IndexOf('_') < 0)
+        {
+            return flattened;
+        }
+
+        return flattened + "__" + StableHash(namespaceName);
+    }
+
+    private static string StableHash(string value)
+    {
+        unchecked
+        {
+            ulong hash = 14695981039346656037;
+            foreach (var c in value)
+            {
+                hash ^= c;
+                hash *= 1099511628211;
+            }
+
+            return hash.ToString("x16");
+        }
     }
 
     private static ServiceResult GetServiceResult(GeneratorAttributeSyntaxContext context, CancellationToken ct)
@@ -740,7 +766,7 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
             // same short name. The proxy/dispatcher CLASS names (defined in their own
             // namespaces) don't collide, but extension-method names do.
             var extensionSuffix = shortNameCounts[serviceName] > 1
-                ? (string.IsNullOrEmpty(service.Namespace) ? serviceName : service.Namespace.Replace('.', '_') + "_" + serviceName)
+                ? (string.IsNullOrEmpty(service.Namespace) ? serviceName : NamespaceIdentifierPrefix(service.Namespace) + "_" + serviceName)
                 : serviceName;
             var proxyName = serviceName + "Proxy";
             var dispatcherName = serviceName + "Dispatcher";

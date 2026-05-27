@@ -317,6 +317,58 @@ public class CodegenRegressionTests
     }
 
     /// <summary>
+    /// Regression: namespaces that differ only by dot-vs-underscore flattening must not
+    /// collide in hint names or generated extension methods.
+    /// </summary>
+    [Fact]
+    public void DotAndUnderscoreNamespaceShapes_DoNotCollideOnHintNamesOrExtensions()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading.Tasks;
+
+            namespace Regress.Flat
+            {
+                [ShaRpcService]
+                public interface IFoo
+                {
+                    Task<int> FromDottedAsync();
+                }
+            }
+
+            namespace Regress_Flat
+            {
+                [ShaRpcService]
+                public interface IFoo
+                {
+                    Task<int> FromUnderscoreAsync();
+                }
+            }
+            """;
+
+        var (final, runResult) = Run(source);
+        AssertCompiles(final);
+
+        var hints = runResult.Results.Single().GeneratedSources
+            .Select(g => g.HintName)
+            .OrderBy(h => h)
+            .ToArray();
+
+        var proxyHints = hints.Where(h => h.EndsWith("IFoo.ShaRpcProxy.g.cs", StringComparison.Ordinal)).ToArray();
+        proxyHints.Should().HaveCount(2);
+        proxyHints.Should().OnlyHaveUniqueItems();
+        proxyHints.Should().Contain("Regress_Flat_IFoo.ShaRpcProxy.g.cs");
+        proxyHints.Should().Contain(h => h.StartsWith("Regress_Flat__", StringComparison.Ordinal),
+            "the underscore namespace should get a deterministic disambiguator");
+
+        var extensions = runResult.Results.Single().GeneratedSources
+            .Single(g => g.HintName == "ShaRpcExtensions.g.cs")
+            .SourceText.ToString();
+        extensions.Should().Contain("CreateRegress_Flat_FooProxy");
+        extensions.Should().Contain("CreateRegress_Flat__");
+    }
+
+    /// <summary>
     /// Cache-hygiene regression: when a service is rejected by SHARPC003, no model
     /// should flow through the <c>Services</c> tracked step, so it cannot accidentally
     /// be incorporated into the <c>AllServices</c> aggregate.
