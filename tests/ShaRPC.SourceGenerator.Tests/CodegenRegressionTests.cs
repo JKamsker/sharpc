@@ -713,6 +713,49 @@ public class CodegenRegressionTests
     }
 
     /// <summary>
+    /// Generic service methods are not routable by ShaRPC's current method-name based
+    /// protocol. The proxy still has to implement the user interface, so it emits a
+    /// generic throwing stub with matching constraints.
+    /// </summary>
+    [Fact]
+    public void GenericServiceMethod_ProducesSHARPC002_AndCompilingProxyStub()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading.Tasks;
+
+            namespace Regress.GenericMethod
+            {
+                [ShaRpcService]
+                public interface IGenericMethod
+                {
+                    Task<T> EchoAsync<T>(T value) where T : class;
+                }
+            }
+            """;
+
+        var (final, runResult) = Run(source);
+        AssertCompiles(final);
+
+        runResult.Diagnostics.Should().Contain(d => d.Id == "SHARPC002" &&
+            d.GetMessage().Contains("generic service methods are not supported"));
+
+        var generated = runResult.Results.Single().GeneratedSources;
+        var proxy = generated
+            .Single(g => g.HintName == GeneratorTestHelper.HintName(
+                "Regress.GenericMethod", "IGenericMethod", GeneratorTestHelper.GeneratedKind.Proxy))
+            .SourceText.ToString();
+        proxy.Should().Contain("EchoAsync<T>(T value) where T : class");
+        proxy.Should().Contain("throw new global::System.NotSupportedException");
+
+        var dispatcher = generated
+            .Single(g => g.HintName == GeneratorTestHelper.HintName(
+                "Regress.GenericMethod", "IGenericMethod", GeneratorTestHelper.GeneratedKind.Dispatcher))
+            .SourceText.ToString();
+        dispatcher.Should().NotContain("case \"EchoAsync\":");
+    }
+
+    /// <summary>
     /// Regression: <see cref="System.Threading.CancellationToken"/> parameters can be
     /// written through aliases and can appear before later payload parameters. The
     /// proxy must preserve the user's signature while excluding the token from the

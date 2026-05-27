@@ -110,7 +110,7 @@ internal static class ProxyGenerator
         var asyncKeyword = (isAsync && method.UnsupportedReason is null) ? "async " : string.Empty;
         var ctArg = GetCancellationTokenArgument(method.Parameters);
 
-        sb.AppendLine($"        public {asyncKeyword}{declaredReturn} {method.Name}({paramList})");
+        sb.AppendLine($"        public {asyncKeyword}{declaredReturn} {method.Name}{method.TypeParameterList}({paramList}){method.ConstraintClauses}");
         sb.AppendLine("        {");
 
         if (method.UnsupportedReason is not null)

@@ -52,6 +52,8 @@ internal sealed record MethodModel(
     string? UnwrappedReturnType,
     bool HasCancellationToken,
     EquatableArray<ParameterModel> Parameters,
+    string TypeParameterList = "",
+    string ConstraintClauses = "",
     string? UnsupportedReason = null,
     SubServiceInfo? SubService = null);
 

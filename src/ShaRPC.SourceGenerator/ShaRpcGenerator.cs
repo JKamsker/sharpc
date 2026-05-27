@@ -403,11 +403,18 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
 
             var returnType = methodSymbol.ReturnType;
             var returnKind = ClassifyReturnType(returnType, out var unwrappedReturnType, out var subService);
+            var typeParameterList = GetTypeParameterList(methodSymbol);
+            var constraintClauses = GetConstraintClauses(methodSymbol);
 
             var parameters = new List<ParameterModel>();
             var hasCancellationToken = false;
             var cancellationTokenCount = 0;
             string? unsupportedReason = null;
+            if (methodSymbol.IsGenericMethod)
+            {
+                unsupportedReason = "generic service methods are not supported; expose a non-generic RPC method instead";
+            }
+
             foreach (var param in methodSymbol.Parameters)
             {
                 var isCancellationToken = cancellationTokenSymbol is not null &&
@@ -453,6 +460,8 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
                 UnwrappedReturnType: unwrappedReturnType,
                 HasCancellationToken: hasCancellationToken,
                 Parameters: parameters.ToEquatableArray(),
+                TypeParameterList: typeParameterList,
+                ConstraintClauses: constraintClauses,
                 UnsupportedReason: unsupportedReason,
                 SubService: subService));
         }
@@ -476,6 +485,63 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
             Error: null,
             MethodDiagnostics: methodDiagnostics.ToEquatableArray(),
             ServiceDiagnostic: null);
+    }
+
+    private static string GetTypeParameterList(IMethodSymbol method)
+    {
+        if (!method.IsGenericMethod)
+        {
+            return string.Empty;
+        }
+
+        return "<" + string.Join(", ", method.TypeParameters.Select(p => p.Name)) + ">";
+    }
+
+    private static string GetConstraintClauses(IMethodSymbol method)
+    {
+        if (!method.IsGenericMethod)
+        {
+            return string.Empty;
+        }
+
+        var clauses = new List<string>();
+        foreach (var typeParameter in method.TypeParameters)
+        {
+            var constraints = new List<string>();
+            if (typeParameter.HasReferenceTypeConstraint)
+            {
+                constraints.Add("class");
+            }
+            else if (typeParameter.HasUnmanagedTypeConstraint)
+            {
+                constraints.Add("unmanaged");
+            }
+            else if (typeParameter.HasValueTypeConstraint)
+            {
+                constraints.Add("struct");
+            }
+            else if (typeParameter.HasNotNullConstraint)
+            {
+                constraints.Add("notnull");
+            }
+
+            foreach (var constraintType in typeParameter.ConstraintTypes)
+            {
+                constraints.Add(constraintType.ToDisplayString(s_qualifiedFormat));
+            }
+
+            if (typeParameter.HasConstructorConstraint)
+            {
+                constraints.Add("new()");
+            }
+
+            if (constraints.Count > 0)
+            {
+                clauses.Add($" where {typeParameter.Name} : {string.Join(", ", constraints)}");
+            }
+        }
+
+        return string.Concat(clauses);
     }
 
     private static void MarkDuplicateWireNames(
