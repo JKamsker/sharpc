@@ -179,14 +179,20 @@ internal static class NamingHelpers
     /// <summary>
     /// Name of the auto-generated async sibling interface for <paramref name="interfaceName"/>.
     /// e.g. <c>"IFoo"</c> → <c>"IFooAsync"</c>, <c>"Foo"</c> → <c>"FooAsync"</c>. Falls back
-    /// to appending only when the source name does not already end in <c>"Async"</c>, so
-    /// <c>"IFooAsync"</c> would emit a sibling named <c>"IFooAsync"</c>… which collides; the
-    /// caller is expected to detect that and skip generation.
+    /// to appending only when the source name does not already end in <c>"Async"</c>.
     /// </summary>
     public static string AsyncSiblingInterfaceName(string interfaceName) =>
         interfaceName.EndsWith("Async", System.StringComparison.Ordinal)
             ? interfaceName
             : interfaceName + "Async";
+
+    /// <summary>
+    /// Returns true when the generated async sibling would have a distinct type name.
+    /// Services whose own interface name already ends in <c>Async</c> cannot safely get
+    /// a sibling because the sibling type would collide with the user-declared service.
+    /// </summary>
+    public static bool CanGenerateAsyncSiblingInterface(string interfaceName) =>
+        !interfaceName.EndsWith("Async", System.StringComparison.Ordinal);
 
     /// <summary>
     /// Projects a method name onto its async sibling form. Already-Async names are unchanged,

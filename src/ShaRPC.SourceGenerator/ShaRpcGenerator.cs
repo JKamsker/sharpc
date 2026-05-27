@@ -128,6 +128,11 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
         var bundles = models
             .Select(static (m, _) =>
             {
+                if (!NamingHelpers.CanGenerateAsyncSiblingInterface(m.InterfaceName))
+                {
+                    return ServiceBundle.Empty(m);
+                }
+
                 var (siblings, collisions) = ComputeAsyncSiblingMethods(m);
                 return new ServiceBundle(m, siblings, collisions);
             })

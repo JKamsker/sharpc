@@ -193,6 +193,41 @@ public class AsyncSiblingTests
     }
 
     /// <summary>
+    /// A service interface whose own name already ends in <c>Async</c> would collide
+    /// with the generated sibling type name, so the generator must skip the sibling
+    /// and still emit compilable proxy/dispatcher code for the service itself.
+    /// </summary>
+    [Fact]
+    public void ServiceInterfaceNameEndingInAsync_DoesNotEmitDuplicateSiblingType_AndCompiles()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading.Tasks;
+
+            namespace AsyncSibling.G
+            {
+                [ShaRpcService]
+                public interface IFooAsync
+                {
+                    Task<int> GetAsync();
+                }
+            }
+            """;
+
+        var (asm, runResult) = Compile(source);
+
+        var service = asm.GetType("AsyncSibling.G.IFooAsync")!;
+        var proxy = asm.GetType("AsyncSibling.G.FooAsyncProxy")!;
+        service.IsAssignableFrom(proxy).Should().BeTrue();
+
+        var hints = runResult.Results.Single().GeneratedSources.Select(g => g.HintName).ToArray();
+        hints.Should().Contain("AsyncSibling_G_IFooAsync.ShaRpcProxy.g.cs");
+        hints.Should().Contain("AsyncSibling_G_IFooAsync.ShaRpcDispatcher.g.cs");
+        hints.Should().NotContain("AsyncSibling_G_IFooAsync.ShaRpcAsync.g.cs",
+            "the generated sibling type would have the same name as the user service interface");
+    }
+
+    /// <summary>
     /// Calling the async sibling method on the proxy must not block — the underlying
     /// IShaRpcClient call uses the awaited path, not GetAwaiter().GetResult().
     /// </summary>
