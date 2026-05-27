@@ -370,7 +370,7 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
             }
 
             var returnType = methodSymbol.ReturnType;
-            var returnKind = ClassifyReturnType(returnType, out var unwrappedReturnType);
+            var returnKind = ClassifyReturnType(returnType, out var unwrappedReturnType, out var subService);
 
             // SHARPC002 — ref/in/out parameters cannot be marshalled across an RPC
             // boundary. We can't simply drop the method (the proxy still has to implement
@@ -413,7 +413,8 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
                 UnwrappedReturnType: unwrappedReturnType,
                 HasCancellationToken: hasCancellationToken,
                 Parameters: parameters.ToEquatableArray(),
-                UnsupportedReason: unsupportedReason));
+                UnsupportedReason: unsupportedReason,
+                SubService: subService));
         }
 
         static string RefKindKeyword(RefKind kind) => kind switch
@@ -440,8 +441,13 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
     /// variants and computes the unwrapped payload type (for generic Task/ValueTask, this
     /// is the type argument; for sync returns, it's the return type itself).
     /// </summary>
-    private static MethodReturnKind ClassifyReturnType(ITypeSymbol returnType, out string? unwrappedReturnType)
+    private static MethodReturnKind ClassifyReturnType(
+        ITypeSymbol returnType,
+        out string? unwrappedReturnType,
+        out SubServiceInfo? subService)
     {
+        subService = null;
+
         if (returnType is INamedTypeSymbol named && named.IsGenericType)
         {
             var nsName = named.ContainingNamespace?.ToDisplayString();
@@ -449,12 +455,24 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
             {
                 if (named.Name == "Task")
                 {
-                    unwrappedReturnType = named.TypeArguments[0].ToDisplayString(s_qualifiedFormat);
+                    var arg = named.TypeArguments[0];
+                    unwrappedReturnType = arg.ToDisplayString(s_qualifiedFormat);
+                    if (TryGetSubServiceInfo(arg, out var sub))
+                    {
+                        subService = sub;
+                        return MethodReturnKind.TaskOfSubService;
+                    }
                     return MethodReturnKind.TaskOf;
                 }
                 if (named.Name == "ValueTask")
                 {
-                    unwrappedReturnType = named.TypeArguments[0].ToDisplayString(s_qualifiedFormat);
+                    var arg = named.TypeArguments[0];
+                    unwrappedReturnType = arg.ToDisplayString(s_qualifiedFormat);
+                    if (TryGetSubServiceInfo(arg, out var sub))
+                    {
+                        subService = sub;
+                        return MethodReturnKind.ValueTaskOfSubService;
+                    }
                     return MethodReturnKind.ValueTaskOf;
                 }
             }
@@ -483,6 +501,45 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
 
         unwrappedReturnType = returnType.ToDisplayString(s_qualifiedFormat);
         return MethodReturnKind.Sync;
+    }
+
+    /// <summary>
+    /// Returns true if <paramref name="type"/> is itself decorated with
+    /// <c>[ShaRpcService]</c>, in which case methods that return it should marshal a
+    /// <c>ServiceHandle</c> rather than attempting to serialize the live object.
+    /// </summary>
+    private static bool TryGetSubServiceInfo(ITypeSymbol type, out SubServiceInfo info)
+    {
+        info = null!;
+        if (type is not INamedTypeSymbol named || named.TypeKind != TypeKind.Interface)
+        {
+            return false;
+        }
+
+        AttributeData? serviceAttr = null;
+        foreach (var attr in named.GetAttributes())
+        {
+            if (attr.AttributeClass?.ToDisplayString() == ShaRpcServiceAttributeName)
+            {
+                serviceAttr = attr;
+                break;
+            }
+        }
+        if (serviceAttr is null) return false;
+
+        string serviceName = named.Name;
+        foreach (var arg in serviceAttr.NamedArguments)
+        {
+            if (arg.Key == "Name" && arg.Value.Value is string customName)
+            {
+                serviceName = customName;
+            }
+        }
+
+        info = new SubServiceInfo(
+            QualifiedInterfaceName: named.ToDisplayString(s_qualifiedFormat),
+            ServiceName: serviceName);
+        return true;
     }
 
     /// <summary>

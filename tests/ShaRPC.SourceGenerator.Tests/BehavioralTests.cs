@@ -87,19 +87,19 @@ public class BehavioralTests
 
         // Two-arg method goes through tuple deserialization.
         var payload = serializer.Serialize<ValueTuple<int, int>>(new ValueTuple<int, int>(7, 5));
-        var bytes = await dispatcher.DispatchAsync("AddAsync", payload, serializer, CancellationToken.None);
+        var bytes = await dispatcher.DispatchAsync("AddAsync", payload, serializer, new InstanceRegistry(), CancellationToken.None);
         var sum = serializer.Deserialize<int>(bytes);
         sum.Should().Be(12);
         impl.LastCall.Should().Be("Add(7,5)");
 
         // One-arg method goes through single deserialization.
         var single = serializer.Serialize<int>(6);
-        var bytes2 = await dispatcher.DispatchAsync("SquareAsync", single, serializer, CancellationToken.None);
+        var bytes2 = await dispatcher.DispatchAsync("SquareAsync", single, serializer, new InstanceRegistry(), CancellationToken.None);
         var sq = serializer.Deserialize<int>(bytes2);
         sq.Should().Be(36);
 
         // Zero-arg, void-returning method returns empty payload.
-        var pingBytes = await dispatcher.DispatchAsync("PingAsync", Array.Empty<byte>(), serializer, CancellationToken.None);
+        var pingBytes = await dispatcher.DispatchAsync("PingAsync", Array.Empty<byte>(), serializer, new InstanceRegistry(), CancellationToken.None);
         pingBytes.Should().BeEmpty();
         impl.PingCount.Should().Be(1);
     }
@@ -194,10 +194,10 @@ public class BehavioralTests
             "Add",
             serializer.Serialize<ValueTuple<int, int>>(new ValueTuple<int, int>(4, 5)),
             serializer,
-            CancellationToken.None);
+            new InstanceRegistry(), CancellationToken.None);
         serializer.Deserialize<int>(bytes).Should().Be(9);
 
-        var pingBytes = await dispatcher.DispatchAsync("Ping", Array.Empty<byte>(), serializer, CancellationToken.None);
+        var pingBytes = await dispatcher.DispatchAsync("Ping", Array.Empty<byte>(), serializer, new InstanceRegistry(), CancellationToken.None);
         pingBytes.Should().BeEmpty();
         syncImpl.PingCalls.Should().Be(1);
     }
@@ -289,6 +289,15 @@ public class BehavioralTests
         }
 
         public ValueTask DisposeAsync() => default;
+
+        // Forward Feature-2 instance overloads to the singleton recorders so the existing
+        // assertions (LastService/LastMethod/LastRequest) still observe sub-routed calls.
+        public Task<TResponse> InvokeOnInstanceAsync<TRequest, TResponse>(string service, string instanceId, string method, TRequest request, CancellationToken ct = default)
+            => InvokeAsync<TRequest, TResponse>(service, method, request, ct);
+        public Task<TResponse> InvokeOnInstanceAsync<TResponse>(string service, string instanceId, string method, CancellationToken ct = default)
+            => InvokeAsync<TResponse>(service, method, ct);
+        public Task InvokeOnInstanceAsync<TRequest>(string service, string instanceId, string method, TRequest request, CancellationToken ct = default)
+            => InvokeAsync(service, method, request, ct);
     }
 
     private sealed class JsonSerializerWrapper : ISerializer

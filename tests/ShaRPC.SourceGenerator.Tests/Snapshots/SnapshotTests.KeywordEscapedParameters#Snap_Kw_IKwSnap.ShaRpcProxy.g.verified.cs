@@ -10,20 +10,30 @@ namespace Snap.Kw
     public sealed class KwSnapProxy : global::Snap.Kw.IKwSnap, global::Snap.Kw.IKwSnapAsync
     {
         private readonly global::ShaRPC.Core.Client.IShaRpcClient _client;
+        /// <summary>Non-null when this proxy targets a sub-service instance returned by a parent call.</summary>
+        private readonly string? _instanceId;
 
         public KwSnapProxy(global::ShaRPC.Core.Client.IShaRpcClient client)
         {
             _client = client ?? throw new global::System.ArgumentNullException(nameof(client));
+            _instanceId = null;
+        }
+
+        /// <summary>Constructs a proxy bound to a specific server-side instance.</summary>
+        public KwSnapProxy(global::ShaRPC.Core.Client.IShaRpcClient client, string instanceId)
+        {
+            _client = client ?? throw new global::System.ArgumentNullException(nameof(client));
+            _instanceId = instanceId ?? throw new global::System.ArgumentNullException(nameof(instanceId));
         }
 
         public async global::System.Threading.Tasks.Task<int> DoAsync(int @class, int @default)
         {
-            return await _client.InvokeAsync<(int, int), int>("IKwSnap", "DoAsync", (@class, @default), default);
+            return await (_instanceId is null ? _client.InvokeAsync<(int, int), int>("IKwSnap", "DoAsync", (@class, @default), default) : _client.InvokeOnInstanceAsync<(int, int), int>("IKwSnap", _instanceId, "DoAsync", (@class, @default), default));
         }
 
         public async global::System.Threading.Tasks.Task<int> DoAsync(int @class, int @default, global::System.Threading.CancellationToken ct = default)
         {
-            return await _client.InvokeAsync<(int, int), int>("IKwSnap", "DoAsync", (@class, @default), ct);
+            return await (_instanceId is null ? _client.InvokeAsync<(int, int), int>("IKwSnap", "DoAsync", (@class, @default), ct) : _client.InvokeOnInstanceAsync<(int, int), int>("IKwSnap", _instanceId, "DoAsync", (@class, @default), ct));
         }
     }
 }

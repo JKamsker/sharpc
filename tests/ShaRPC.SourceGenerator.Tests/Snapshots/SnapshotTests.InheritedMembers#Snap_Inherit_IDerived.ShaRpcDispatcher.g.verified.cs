@@ -19,7 +19,7 @@ namespace Snap.Inherit
         public string ServiceName => "IDerived";
 
 #pragma warning disable CS1998
-        public async global::System.Threading.Tasks.Task<byte[]> DispatchAsync(string method, byte[] payload, global::ShaRPC.Core.Serialization.ISerializer serializer, global::System.Threading.CancellationToken ct = default)
+        public async global::System.Threading.Tasks.Task<byte[]> DispatchAsync(string method, byte[] payload, global::ShaRPC.Core.Serialization.ISerializer serializer, global::ShaRPC.Core.Server.IInstanceRegistry registry, global::System.Threading.CancellationToken ct = default)
 #pragma warning restore CS1998
         {
             switch (method)
@@ -33,6 +33,32 @@ namespace Snap.Inherit
                 {
                     var arg = serializer.Deserialize<int>(payload);
                     var result = await _service.BaseAsync(arg);
+                    return serializer.Serialize(result);
+                }
+                default:
+                    throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException($"Method '{method}' not found on service 'IDerived'.");
+            }
+        }
+
+#pragma warning disable CS1998
+        public async global::System.Threading.Tasks.Task<byte[]> DispatchOnInstanceAsync(string instanceId, string method, byte[] payload, global::ShaRPC.Core.Serialization.ISerializer serializer, global::ShaRPC.Core.Server.IInstanceRegistry registry, global::System.Threading.CancellationToken ct = default)
+#pragma warning restore CS1998
+        {
+            if (!registry.TryGet("IDerived", instanceId, out var __obj) || __obj is not global::Snap.Inherit.IDerived __inst)
+            {
+                throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException($"Instance '{instanceId}' not found for service 'IDerived'.");
+            }
+            switch (method)
+            {
+                case "DerivedAsync":
+                {
+                    var result = await __inst.DerivedAsync();
+                    return serializer.Serialize(result);
+                }
+                case "BaseAsync":
+                {
+                    var arg = serializer.Deserialize<int>(payload);
+                    var result = await __inst.BaseAsync(arg);
                     return serializer.Serialize(result);
                 }
                 default:

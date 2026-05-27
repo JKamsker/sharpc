@@ -19,7 +19,7 @@ namespace Snap.Two
         public string ServiceName => "IOne";
 
 #pragma warning disable CS1998
-        public async global::System.Threading.Tasks.Task<byte[]> DispatchAsync(string method, byte[] payload, global::ShaRPC.Core.Serialization.ISerializer serializer, global::System.Threading.CancellationToken ct = default)
+        public async global::System.Threading.Tasks.Task<byte[]> DispatchAsync(string method, byte[] payload, global::ShaRPC.Core.Serialization.ISerializer serializer, global::ShaRPC.Core.Server.IInstanceRegistry registry, global::System.Threading.CancellationToken ct = default)
 #pragma warning restore CS1998
         {
             switch (method)
@@ -28,6 +28,27 @@ namespace Snap.Two
                 {
                     var arg = serializer.Deserialize<int>(payload);
                     var result = await _service.AAsync(arg);
+                    return serializer.Serialize(result);
+                }
+                default:
+                    throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException($"Method '{method}' not found on service 'IOne'.");
+            }
+        }
+
+#pragma warning disable CS1998
+        public async global::System.Threading.Tasks.Task<byte[]> DispatchOnInstanceAsync(string instanceId, string method, byte[] payload, global::ShaRPC.Core.Serialization.ISerializer serializer, global::ShaRPC.Core.Server.IInstanceRegistry registry, global::System.Threading.CancellationToken ct = default)
+#pragma warning restore CS1998
+        {
+            if (!registry.TryGet("IOne", instanceId, out var __obj) || __obj is not global::Snap.Two.IOne __inst)
+            {
+                throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException($"Instance '{instanceId}' not found for service 'IOne'.");
+            }
+            switch (method)
+            {
+                case "AAsync":
+                {
+                    var arg = serializer.Deserialize<int>(payload);
+                    var result = await __inst.AAsync(arg);
                     return serializer.Serialize(result);
                 }
                 default:

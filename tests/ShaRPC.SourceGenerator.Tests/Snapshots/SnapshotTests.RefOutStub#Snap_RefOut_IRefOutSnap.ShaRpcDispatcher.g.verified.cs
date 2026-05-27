@@ -19,7 +19,7 @@ namespace Snap.RefOut
         public string ServiceName => "IRefOutSnap";
 
 #pragma warning disable CS1998
-        public async global::System.Threading.Tasks.Task<byte[]> DispatchAsync(string method, byte[] payload, global::ShaRPC.Core.Serialization.ISerializer serializer, global::System.Threading.CancellationToken ct = default)
+        public async global::System.Threading.Tasks.Task<byte[]> DispatchAsync(string method, byte[] payload, global::ShaRPC.Core.Serialization.ISerializer serializer, global::ShaRPC.Core.Server.IInstanceRegistry registry, global::System.Threading.CancellationToken ct = default)
 #pragma warning restore CS1998
         {
             switch (method)
@@ -28,6 +28,27 @@ namespace Snap.RefOut
                 {
                     var arg = serializer.Deserialize<int>(payload);
                     var result = await _service.GoodAsync(arg);
+                    return serializer.Serialize(result);
+                }
+                default:
+                    throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException($"Method '{method}' not found on service 'IRefOutSnap'.");
+            }
+        }
+
+#pragma warning disable CS1998
+        public async global::System.Threading.Tasks.Task<byte[]> DispatchOnInstanceAsync(string instanceId, string method, byte[] payload, global::ShaRPC.Core.Serialization.ISerializer serializer, global::ShaRPC.Core.Server.IInstanceRegistry registry, global::System.Threading.CancellationToken ct = default)
+#pragma warning restore CS1998
+        {
+            if (!registry.TryGet("IRefOutSnap", instanceId, out var __obj) || __obj is not global::Snap.RefOut.IRefOutSnap __inst)
+            {
+                throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException($"Instance '{instanceId}' not found for service 'IRefOutSnap'.");
+            }
+            switch (method)
+            {
+                case "GoodAsync":
+                {
+                    var arg = serializer.Deserialize<int>(payload);
+                    var result = await __inst.GoodAsync(arg);
                     return serializer.Serialize(result);
                 }
                 default:

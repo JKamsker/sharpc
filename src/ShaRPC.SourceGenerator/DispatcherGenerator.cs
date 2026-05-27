@@ -7,7 +7,12 @@ namespace ShaRPC.SourceGenerator;
 /// <c>DispatchAsync</c> is itself async, but it calls the user's service method using
 /// the exact shape declared on the interface (sync vs async, with or without a
 /// <see cref="System.Threading.CancellationToken"/>). All emitted type references are
-/// fully qualified.
+/// fully qualified. When a service method's return type is itself a
+/// <c>[ShaRpcService]</c> interface the dispatcher registers the returned instance with
+/// the per-connection <see cref="ShaRPC.Core.Server.IInstanceRegistry"/> and serializes a
+/// <see cref="ShaRPC.Core.Protocol.ServiceHandle"/> in its place. Every dispatcher also
+/// emits a <c>DispatchOnInstanceAsync</c> override that resolves a registered instance
+/// and runs the same switch against it — so any service may be reached as a sub-service.
 /// </summary>
 internal static class DispatcherGenerator
 {
@@ -40,26 +45,10 @@ internal static class DispatcherGenerator
         sb.AppendLine("        }");
         sb.AppendLine();
         sb.AppendLine($"        public string ServiceName => \"{service.ServiceName}\";");
-        sb.AppendLine();
-        // CS1998 is suppressed because services whose methods are all synchronous would
-        // otherwise leave the async DispatchAsync with no `await`. The signature must
-        // remain async to satisfy IServiceDispatcher.
-        sb.AppendLine("#pragma warning disable CS1998");
-        sb.AppendLine("        public async global::System.Threading.Tasks.Task<byte[]> DispatchAsync(string method, byte[] payload, global::ShaRPC.Core.Serialization.ISerializer serializer, global::System.Threading.CancellationToken ct = default)");
-        sb.AppendLine("#pragma warning restore CS1998");
-        sb.AppendLine("        {");
-        sb.AppendLine("            switch (method)");
-        sb.AppendLine("            {");
 
-        foreach (var m in service.Methods.Array)
-        {
-            GenerateDispatchCase(sb, m);
-        }
+        EmitDispatchAsync(sb, service, qualifiedInterface, isInstanceScoped: false);
+        EmitDispatchAsync(sb, service, qualifiedInterface, isInstanceScoped: true);
 
-        sb.AppendLine("                default:");
-        sb.AppendLine($"                    throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException($\"Method '{{method}}' not found on service '{service.ServiceName}'.\");");
-        sb.AppendLine("            }");
-        sb.AppendLine("        }");
         sb.AppendLine("    }");
 
         if (!string.IsNullOrEmpty(service.Namespace))
@@ -75,7 +64,57 @@ internal static class DispatcherGenerator
             ? "global::" + typeName
             : $"global::{service.Namespace}.{typeName}";
 
-    private static void GenerateDispatchCase(StringBuilder sb, MethodModel method)
+    /// <summary>
+    /// Emits either <c>DispatchAsync</c> (singleton case) or <c>DispatchOnInstanceAsync</c>
+    /// (instance case). Both share the same switch body — only the receiver expression
+    /// differs (<c>_service</c> vs the registry-resolved instance).
+    /// </summary>
+    private static void EmitDispatchAsync(StringBuilder sb, ServiceModel service, string qualifiedInterface, bool isInstanceScoped)
+    {
+        sb.AppendLine();
+        // CS1998: when every method on the service is sync the body has no `await`, but
+        // we must keep the async return type to satisfy the interface contract.
+        sb.AppendLine("#pragma warning disable CS1998");
+        if (isInstanceScoped)
+        {
+            sb.AppendLine("        public async global::System.Threading.Tasks.Task<byte[]> DispatchOnInstanceAsync(string instanceId, string method, byte[] payload, global::ShaRPC.Core.Serialization.ISerializer serializer, global::ShaRPC.Core.Server.IInstanceRegistry registry, global::System.Threading.CancellationToken ct = default)");
+        }
+        else
+        {
+            sb.AppendLine("        public async global::System.Threading.Tasks.Task<byte[]> DispatchAsync(string method, byte[] payload, global::ShaRPC.Core.Serialization.ISerializer serializer, global::ShaRPC.Core.Server.IInstanceRegistry registry, global::System.Threading.CancellationToken ct = default)");
+        }
+        sb.AppendLine("#pragma warning restore CS1998");
+        sb.AppendLine("        {");
+
+        string receiver;
+        if (isInstanceScoped)
+        {
+            sb.AppendLine($"            if (!registry.TryGet(\"{service.ServiceName}\", instanceId, out var __obj) || __obj is not {qualifiedInterface} __inst)");
+            sb.AppendLine("            {");
+            sb.AppendLine($"                throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException($\"Instance '{{instanceId}}' not found for service '{service.ServiceName}'.\");");
+            sb.AppendLine("            }");
+            receiver = "__inst";
+        }
+        else
+        {
+            receiver = "_service";
+        }
+
+        sb.AppendLine("            switch (method)");
+        sb.AppendLine("            {");
+
+        foreach (var m in service.Methods.Array)
+        {
+            GenerateDispatchCase(sb, service, m, receiver);
+        }
+
+        sb.AppendLine("                default:");
+        sb.AppendLine($"                    throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException($\"Method '{{method}}' not found on service '{service.ServiceName}'.\");");
+        sb.AppendLine("            }");
+        sb.AppendLine("        }");
+    }
+
+    private static void GenerateDispatchCase(StringBuilder sb, ServiceModel service, MethodModel method, string receiver)
     {
         // Methods whose shape we cannot marshal (ref/in/out parameters) get no switch case;
         // an inbound call for them falls through to the default ShaRpcNotFoundException
@@ -117,7 +156,7 @@ internal static class DispatcherGenerator
             argList.Append("ct");
         }
 
-        var call = $"_service.{method.Name}({argList})";
+        var call = $"{receiver}.{method.Name}({argList})";
 
         switch (method.ReturnKind)
         {
@@ -142,6 +181,19 @@ internal static class DispatcherGenerator
                 sb.AppendLine($"                    var result = await {call};");
                 sb.AppendLine("                    return serializer.Serialize(result);");
                 break;
+
+            case MethodReturnKind.TaskOfSubService:
+            case MethodReturnKind.ValueTaskOfSubService:
+            {
+                // Sub-service return: don't serialize the live instance; instead register
+                // it with the per-connection registry and ship back a ServiceHandle the
+                // client can wrap in a sub-proxy.
+                var info = method.SubService!;
+                sb.AppendLine($"                    var __sub = await {call};");
+                sb.AppendLine($"                    var __subId = registry.Register(\"{info.ServiceName}\", __sub);");
+                sb.AppendLine($"                    return serializer.Serialize(new global::ShaRPC.Core.Protocol.ServiceHandle {{ ServiceName = \"{info.ServiceName}\", InstanceId = __subId }});");
+                break;
+            }
         }
 
         sb.AppendLine("                }");

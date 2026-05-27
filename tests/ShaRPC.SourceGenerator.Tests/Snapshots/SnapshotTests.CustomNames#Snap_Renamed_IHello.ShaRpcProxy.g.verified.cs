@@ -10,20 +10,30 @@ namespace Snap.Renamed
     public sealed class HelloProxy : global::Snap.Renamed.IHello, global::Snap.Renamed.IHelloAsync
     {
         private readonly global::ShaRPC.Core.Client.IShaRpcClient _client;
+        /// <summary>Non-null when this proxy targets a sub-service instance returned by a parent call.</summary>
+        private readonly string? _instanceId;
 
         public HelloProxy(global::ShaRPC.Core.Client.IShaRpcClient client)
         {
             _client = client ?? throw new global::System.ArgumentNullException(nameof(client));
+            _instanceId = null;
+        }
+
+        /// <summary>Constructs a proxy bound to a specific server-side instance.</summary>
+        public HelloProxy(global::ShaRPC.Core.Client.IShaRpcClient client, string instanceId)
+        {
+            _client = client ?? throw new global::System.ArgumentNullException(nameof(client));
+            _instanceId = instanceId ?? throw new global::System.ArgumentNullException(nameof(instanceId));
         }
 
         public async global::System.Threading.Tasks.Task<string> HelloAsync(string who)
         {
-            return await _client.InvokeAsync<string, string>("Greeter", "Greet", who, default);
+            return await (_instanceId is null ? _client.InvokeAsync<string, string>("Greeter", "Greet", who, default) : _client.InvokeOnInstanceAsync<string, string>("Greeter", _instanceId, "Greet", who, default));
         }
 
         public async global::System.Threading.Tasks.Task<string> HelloAsync(string who, global::System.Threading.CancellationToken ct = default)
         {
-            return await _client.InvokeAsync<string, string>("Greeter", "Greet", who, ct);
+            return await (_instanceId is null ? _client.InvokeAsync<string, string>("Greeter", "Greet", who, ct) : _client.InvokeOnInstanceAsync<string, string>("Greeter", _instanceId, "Greet", who, ct));
         }
     }
 }

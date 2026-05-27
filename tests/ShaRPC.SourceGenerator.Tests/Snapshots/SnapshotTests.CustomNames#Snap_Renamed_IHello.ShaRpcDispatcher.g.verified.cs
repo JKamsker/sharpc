@@ -19,7 +19,7 @@ namespace Snap.Renamed
         public string ServiceName => "Greeter";
 
 #pragma warning disable CS1998
-        public async global::System.Threading.Tasks.Task<byte[]> DispatchAsync(string method, byte[] payload, global::ShaRPC.Core.Serialization.ISerializer serializer, global::System.Threading.CancellationToken ct = default)
+        public async global::System.Threading.Tasks.Task<byte[]> DispatchAsync(string method, byte[] payload, global::ShaRPC.Core.Serialization.ISerializer serializer, global::ShaRPC.Core.Server.IInstanceRegistry registry, global::System.Threading.CancellationToken ct = default)
 #pragma warning restore CS1998
         {
             switch (method)
@@ -28,6 +28,27 @@ namespace Snap.Renamed
                 {
                     var arg = serializer.Deserialize<string>(payload);
                     var result = await _service.HelloAsync(arg);
+                    return serializer.Serialize(result);
+                }
+                default:
+                    throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException($"Method '{method}' not found on service 'Greeter'.");
+            }
+        }
+
+#pragma warning disable CS1998
+        public async global::System.Threading.Tasks.Task<byte[]> DispatchOnInstanceAsync(string instanceId, string method, byte[] payload, global::ShaRPC.Core.Serialization.ISerializer serializer, global::ShaRPC.Core.Server.IInstanceRegistry registry, global::System.Threading.CancellationToken ct = default)
+#pragma warning restore CS1998
+        {
+            if (!registry.TryGet("Greeter", instanceId, out var __obj) || __obj is not global::Snap.Renamed.IHello __inst)
+            {
+                throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException($"Instance '{instanceId}' not found for service 'Greeter'.");
+            }
+            switch (method)
+            {
+                case "Greet":
+                {
+                    var arg = serializer.Deserialize<string>(payload);
+                    var result = await __inst.HelloAsync(arg);
                     return serializer.Serialize(result);
                 }
                 default:

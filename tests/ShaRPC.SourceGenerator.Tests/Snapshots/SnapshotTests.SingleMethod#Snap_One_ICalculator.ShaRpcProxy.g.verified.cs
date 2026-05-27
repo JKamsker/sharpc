@@ -10,20 +10,30 @@ namespace Snap.One
     public sealed class CalculatorProxy : global::Snap.One.ICalculator, global::Snap.One.ICalculatorAsync
     {
         private readonly global::ShaRPC.Core.Client.IShaRpcClient _client;
+        /// <summary>Non-null when this proxy targets a sub-service instance returned by a parent call.</summary>
+        private readonly string? _instanceId;
 
         public CalculatorProxy(global::ShaRPC.Core.Client.IShaRpcClient client)
         {
             _client = client ?? throw new global::System.ArgumentNullException(nameof(client));
+            _instanceId = null;
+        }
+
+        /// <summary>Constructs a proxy bound to a specific server-side instance.</summary>
+        public CalculatorProxy(global::ShaRPC.Core.Client.IShaRpcClient client, string instanceId)
+        {
+            _client = client ?? throw new global::System.ArgumentNullException(nameof(client));
+            _instanceId = instanceId ?? throw new global::System.ArgumentNullException(nameof(instanceId));
         }
 
         public async global::System.Threading.Tasks.Task<int> AddAsync(int a, int b)
         {
-            return await _client.InvokeAsync<(int, int), int>("ICalculator", "AddAsync", (a, b), default);
+            return await (_instanceId is null ? _client.InvokeAsync<(int, int), int>("ICalculator", "AddAsync", (a, b), default) : _client.InvokeOnInstanceAsync<(int, int), int>("ICalculator", _instanceId, "AddAsync", (a, b), default));
         }
 
         public async global::System.Threading.Tasks.Task<int> AddAsync(int a, int b, global::System.Threading.CancellationToken ct = default)
         {
-            return await _client.InvokeAsync<(int, int), int>("ICalculator", "AddAsync", (a, b), ct);
+            return await (_instanceId is null ? _client.InvokeAsync<(int, int), int>("ICalculator", "AddAsync", (a, b), ct) : _client.InvokeOnInstanceAsync<(int, int), int>("ICalculator", _instanceId, "AddAsync", (a, b), ct));
         }
     }
 }

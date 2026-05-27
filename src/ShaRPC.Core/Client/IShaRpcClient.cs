@@ -37,6 +37,38 @@ public interface IShaRpcClient : IAsyncDisposable
         CancellationToken ct = default);
 
     /// <summary>
+    /// Invokes a method on a specific server-side sub-service instance previously
+    /// obtained via a root call. Mirrors <see cref="InvokeAsync{TRequest,TResponse}(string,string,TRequest,CancellationToken)"/>
+    /// but threads the opaque <paramref name="instanceId"/> issued by the server's
+    /// instance registry through the wire request.
+    /// </summary>
+    Task<TResponse> InvokeOnInstanceAsync<TRequest, TResponse>(
+        string service,
+        string instanceId,
+        string method,
+        TRequest request,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Invokes an instance-scoped RPC method with no request body and a response payload.
+    /// </summary>
+    Task<TResponse> InvokeOnInstanceAsync<TResponse>(
+        string service,
+        string instanceId,
+        string method,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Invokes an instance-scoped RPC method with a request body and no response payload.
+    /// </summary>
+    Task InvokeOnInstanceAsync<TRequest>(
+        string service,
+        string instanceId,
+        string method,
+        TRequest request,
+        CancellationToken ct = default);
+
+    /// <summary>
     /// Gets whether the client is connected.
     /// </summary>
     bool IsConnected { get; }

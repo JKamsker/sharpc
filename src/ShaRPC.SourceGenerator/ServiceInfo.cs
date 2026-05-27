@@ -17,7 +17,18 @@ internal enum MethodReturnKind
     ValueTask,
     /// <summary><see cref="System.Threading.Tasks.ValueTask{TResult}"/> — async with payload.</summary>
     ValueTaskOf,
+    /// <summary><see cref="System.Threading.Tasks.Task{TResult}"/> where <c>TResult</c> is itself a <c>[ShaRpcService]</c> interface — nested sub-service.</summary>
+    TaskOfSubService,
+    /// <summary><see cref="System.Threading.Tasks.ValueTask{TResult}"/> where <c>TResult</c> is itself a <c>[ShaRpcService]</c> interface — nested sub-service.</summary>
+    ValueTaskOfSubService,
 }
+
+/// <summary>
+/// Information needed to wire a method returning a nested sub-service: the fully-qualified
+/// interface name (so the proxy can construct a sibling proxy) and the RPC service name
+/// (so the wire instance dispatch hits the right registry slot).
+/// </summary>
+internal sealed record SubServiceInfo(string QualifiedInterfaceName, string ServiceName);
 
 /// <summary>
 /// Immutable, value-equatable representation of a ShaRPC service.
@@ -41,7 +52,8 @@ internal sealed record MethodModel(
     string? UnwrappedReturnType,
     bool HasCancellationToken,
     EquatableArray<ParameterModel> Parameters,
-    string? UnsupportedReason = null);
+    string? UnsupportedReason = null,
+    SubServiceInfo? SubService = null);
 
 /// <summary>
 /// Immutable, value-equatable representation of a method parameter (excluding any
@@ -121,6 +133,10 @@ internal static class NamingHelpers
             MethodReturnKind.TaskOf => $"global::System.Threading.Tasks.Task<{unwrappedReturnType}>",
             MethodReturnKind.ValueTask => "global::System.Threading.Tasks.ValueTask",
             MethodReturnKind.ValueTaskOf => $"global::System.Threading.Tasks.ValueTask<{unwrappedReturnType}>",
+            // Sub-service returns surface as Task<TInterface>/ValueTask<TInterface> on the
+            // interface; the proxy's body short-circuits to a generated sub-proxy.
+            MethodReturnKind.TaskOfSubService => $"global::System.Threading.Tasks.Task<{unwrappedReturnType}>",
+            MethodReturnKind.ValueTaskOfSubService => $"global::System.Threading.Tasks.ValueTask<{unwrappedReturnType}>",
             _ => "void",
         };
     }
@@ -133,16 +149,25 @@ internal static class NamingHelpers
         kind == MethodReturnKind.Task ||
         kind == MethodReturnKind.TaskOf ||
         kind == MethodReturnKind.ValueTask ||
-        kind == MethodReturnKind.ValueTaskOf;
+        kind == MethodReturnKind.ValueTaskOf ||
+        kind == MethodReturnKind.TaskOfSubService ||
+        kind == MethodReturnKind.ValueTaskOfSubService;
 
     /// <summary>
     /// Returns true if the return kind carries a response payload (a generic Task/ValueTask of T
-    /// or a synchronous T).
+    /// or a synchronous T) — i.e. the underlying wire call must deserialize a payload.
     /// </summary>
     public static bool HasReturnValue(MethodReturnKind kind) =>
         kind == MethodReturnKind.Sync ||
         kind == MethodReturnKind.TaskOf ||
-        kind == MethodReturnKind.ValueTaskOf;
+        kind == MethodReturnKind.ValueTaskOf ||
+        kind == MethodReturnKind.TaskOfSubService ||
+        kind == MethodReturnKind.ValueTaskOfSubService;
+
+    /// <summary>True for the two sub-service-returning kinds.</summary>
+    public static bool IsSubServiceReturn(MethodReturnKind kind) =>
+        kind == MethodReturnKind.TaskOfSubService ||
+        kind == MethodReturnKind.ValueTaskOfSubService;
 
     /// <summary>
     /// Name of the auto-generated async sibling interface for <paramref name="interfaceName"/>.

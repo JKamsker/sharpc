@@ -24,4 +24,13 @@ public sealed class RpcRequest
     /// Serialized method arguments.
     /// </summary>
     public byte[] Payload { get; set; } = Array.Empty<byte>();
+
+    /// <summary>
+    /// Per-connection opaque identifier of the server-side instance this call targets.
+    /// <c>null</c> for ordinary singleton-service calls (the legacy code path); non-null
+    /// for nested-service calls dispatched via
+    /// <see cref="ShaRPC.Core.Server.IServiceDispatcher.DispatchOnInstanceAsync"/>.
+    /// Wire-compatible with older peers because absent properties deserialize to null.
+    /// </summary>
+    public string? InstanceId { get; set; }
 }

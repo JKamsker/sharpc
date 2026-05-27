@@ -88,7 +88,10 @@ public sealed class ShaRpcServer : IShaRpcServer
             try
             {
                 var connection = await _transport.AcceptAsync(ct);
-                var connectionTask = HandleConnectionAsync(connection, ct);
+                // Each connection gets its own instance registry — sub-service identifiers
+                // are scoped to the connection that created them.
+                var registry = new InstanceRegistry();
+                var connectionTask = HandleConnectionAsync(connection, registry, ct);
                 _connections.TryAdd(connection, connectionTask);
 
                 // Clean up completed connections
@@ -105,7 +108,7 @@ public sealed class ShaRpcServer : IShaRpcServer
         }
     }
 
-    private async Task HandleConnectionAsync(IConnection connection, CancellationToken ct)
+    private async Task HandleConnectionAsync(IConnection connection, IInstanceRegistry registry, CancellationToken ct)
     {
         try
         {
@@ -117,7 +120,7 @@ public sealed class ShaRpcServer : IShaRpcServer
                     break; // Connection closed
                 }
 
-                await ProcessMessageAsync(connection, data, ct);
+                await ProcessMessageAsync(connection, registry, data, ct);
             }
         }
         catch (OperationCanceledException)
@@ -130,11 +133,14 @@ public sealed class ShaRpcServer : IShaRpcServer
         }
         finally
         {
+            // Drop every sub-service instance tied to this connection so user code's
+            // server-side state cannot outlive the connection that produced it.
+            registry.ReleaseAll();
             await connection.DisposeAsync();
         }
     }
 
-    private async Task ProcessMessageAsync(IConnection connection, Memory<byte> data, CancellationToken ct)
+    private async Task ProcessMessageAsync(IConnection connection, IInstanceRegistry registry, Memory<byte> data, CancellationToken ct)
     {
         using var stream = new MemoryStream(data.ToArray());
         var message = await MessageFramer.ReadMessageAsync(stream, ct);
@@ -168,7 +174,12 @@ public sealed class ShaRpcServer : IShaRpcServer
             }
             else
             {
-                var result = await dispatcher.DispatchAsync(request.MethodName, request.Payload, _serializer, ct);
+                // Route by instance: a non-null InstanceId means the call targets a
+                // server-side sub-service that the client got a handle to earlier.
+                var result = request.InstanceId is null
+                    ? await dispatcher.DispatchAsync(request.MethodName, request.Payload, _serializer, registry, ct)
+                    : await dispatcher.DispatchOnInstanceAsync(request.InstanceId, request.MethodName, request.Payload, _serializer, registry, ct);
+
                 response = new RpcResponse
                 {
                     MessageId = messageId,

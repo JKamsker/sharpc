@@ -10,20 +10,30 @@ namespace Snap.Two
     public sealed class OneProxy : global::Snap.Two.IOne, global::Snap.Two.IOneAsync
     {
         private readonly global::ShaRPC.Core.Client.IShaRpcClient _client;
+        /// <summary>Non-null when this proxy targets a sub-service instance returned by a parent call.</summary>
+        private readonly string? _instanceId;
 
         public OneProxy(global::ShaRPC.Core.Client.IShaRpcClient client)
         {
             _client = client ?? throw new global::System.ArgumentNullException(nameof(client));
+            _instanceId = null;
+        }
+
+        /// <summary>Constructs a proxy bound to a specific server-side instance.</summary>
+        public OneProxy(global::ShaRPC.Core.Client.IShaRpcClient client, string instanceId)
+        {
+            _client = client ?? throw new global::System.ArgumentNullException(nameof(client));
+            _instanceId = instanceId ?? throw new global::System.ArgumentNullException(nameof(instanceId));
         }
 
         public async global::System.Threading.Tasks.Task<int> AAsync(int x)
         {
-            return await _client.InvokeAsync<int, int>("IOne", "AAsync", x, default);
+            return await (_instanceId is null ? _client.InvokeAsync<int, int>("IOne", "AAsync", x, default) : _client.InvokeOnInstanceAsync<int, int>("IOne", _instanceId, "AAsync", x, default));
         }
 
         public async global::System.Threading.Tasks.Task<int> AAsync(int x, global::System.Threading.CancellationToken ct = default)
         {
-            return await _client.InvokeAsync<int, int>("IOne", "AAsync", x, ct);
+            return await (_instanceId is null ? _client.InvokeAsync<int, int>("IOne", "AAsync", x, ct) : _client.InvokeOnInstanceAsync<int, int>("IOne", _instanceId, "AAsync", x, ct));
         }
     }
 }

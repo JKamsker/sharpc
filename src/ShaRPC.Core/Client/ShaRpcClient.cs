@@ -43,7 +43,7 @@ public sealed class ShaRpcClient : IShaRpcClient
         CancellationToken ct = default)
     {
         var requestPayload = _serializer.Serialize(request);
-        var response = await SendRequestAsync(service, method, requestPayload, ct);
+        var response = await SendRequestAsync(service, method, requestPayload, instanceId: null, ct);
         return _serializer.Deserialize<TResponse>(response.Payload);
     }
 
@@ -52,7 +52,7 @@ public sealed class ShaRpcClient : IShaRpcClient
         string method,
         CancellationToken ct = default)
     {
-        var response = await SendRequestAsync(service, method, Array.Empty<byte>(), ct);
+        var response = await SendRequestAsync(service, method, Array.Empty<byte>(), instanceId: null, ct);
         return _serializer.Deserialize<TResponse>(response.Payload);
     }
 
@@ -63,13 +63,47 @@ public sealed class ShaRpcClient : IShaRpcClient
         CancellationToken ct = default)
     {
         var requestPayload = _serializer.Serialize(request);
-        await SendRequestAsync(service, method, requestPayload, ct);
+        await SendRequestAsync(service, method, requestPayload, instanceId: null, ct);
+    }
+
+    public async Task<TResponse> InvokeOnInstanceAsync<TRequest, TResponse>(
+        string service,
+        string instanceId,
+        string method,
+        TRequest request,
+        CancellationToken ct = default)
+    {
+        var requestPayload = _serializer.Serialize(request);
+        var response = await SendRequestAsync(service, method, requestPayload, instanceId, ct);
+        return _serializer.Deserialize<TResponse>(response.Payload);
+    }
+
+    public async Task<TResponse> InvokeOnInstanceAsync<TResponse>(
+        string service,
+        string instanceId,
+        string method,
+        CancellationToken ct = default)
+    {
+        var response = await SendRequestAsync(service, method, Array.Empty<byte>(), instanceId, ct);
+        return _serializer.Deserialize<TResponse>(response.Payload);
+    }
+
+    public async Task InvokeOnInstanceAsync<TRequest>(
+        string service,
+        string instanceId,
+        string method,
+        TRequest request,
+        CancellationToken ct = default)
+    {
+        var requestPayload = _serializer.Serialize(request);
+        await SendRequestAsync(service, method, requestPayload, instanceId, ct);
     }
 
     private async Task<RpcResponse> SendRequestAsync(
         string service,
         string method,
         byte[] payload,
+        string? instanceId,
         CancellationToken ct)
     {
         if (_transport.Connection == null || !_transport.IsConnected)
@@ -83,7 +117,8 @@ public sealed class ShaRpcClient : IShaRpcClient
             MessageId = messageId,
             ServiceName = service,
             MethodName = method,
-            Payload = payload
+            Payload = payload,
+            InstanceId = instanceId,
         };
 
         var tcs = new TaskCompletionSource<RpcResponse>(TaskCreationOptions.RunContinuationsAsynchronously);

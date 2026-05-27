@@ -10,20 +10,30 @@ namespace Snap.Two
     public sealed class TwoProxy : global::Snap.Two.ITwo, global::Snap.Two.ITwoAsync
     {
         private readonly global::ShaRPC.Core.Client.IShaRpcClient _client;
+        /// <summary>Non-null when this proxy targets a sub-service instance returned by a parent call.</summary>
+        private readonly string? _instanceId;
 
         public TwoProxy(global::ShaRPC.Core.Client.IShaRpcClient client)
         {
             _client = client ?? throw new global::System.ArgumentNullException(nameof(client));
+            _instanceId = null;
+        }
+
+        /// <summary>Constructs a proxy bound to a specific server-side instance.</summary>
+        public TwoProxy(global::ShaRPC.Core.Client.IShaRpcClient client, string instanceId)
+        {
+            _client = client ?? throw new global::System.ArgumentNullException(nameof(client));
+            _instanceId = instanceId ?? throw new global::System.ArgumentNullException(nameof(instanceId));
         }
 
         public async global::System.Threading.Tasks.Task<string> BAsync()
         {
-            return await _client.InvokeAsync<string>("ITwo", "BAsync", default);
+            return await (_instanceId is null ? _client.InvokeAsync<string>("ITwo", "BAsync", default) : _client.InvokeOnInstanceAsync<string>("ITwo", _instanceId, "BAsync", default));
         }
 
         public async global::System.Threading.Tasks.Task<string> BAsync(global::System.Threading.CancellationToken ct = default)
         {
-            return await _client.InvokeAsync<string>("ITwo", "BAsync", ct);
+            return await (_instanceId is null ? _client.InvokeAsync<string>("ITwo", "BAsync", ct) : _client.InvokeOnInstanceAsync<string>("ITwo", _instanceId, "BAsync", ct));
         }
     }
 }

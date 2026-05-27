@@ -289,6 +289,16 @@ public class AsyncSiblingTests
             return Task.CompletedTask;
         }
         public ValueTask DisposeAsync() => default;
+
+        // The Feature-2 sub-service overloads aren't exercised by these tests, but the
+        // interface requires them — forward to the singleton variants so any accidental
+        // sub-routed call still records and returns sensibly.
+        public Task<TR> InvokeOnInstanceAsync<TQ, TR>(string svc, string id, string method, TQ req, CancellationToken ct = default)
+            => InvokeAsync<TQ, TR>(svc, method, req, ct);
+        public Task<TR> InvokeOnInstanceAsync<TR>(string svc, string id, string method, CancellationToken ct = default)
+            => InvokeAsync<TR>(svc, method, ct);
+        public Task InvokeOnInstanceAsync<TQ>(string svc, string id, string method, TQ req, CancellationToken ct = default)
+            => InvokeAsync(svc, method, req, ct);
     }
 
     /// <summary>
@@ -316,5 +326,15 @@ public class AsyncSiblingTests
         public Task InvokeAsync<TQ>(string svc, string method, TQ req, CancellationToken ct = default) =>
             _gate;
         public ValueTask DisposeAsync() => default;
+
+        // The Feature-2 sub-service overloads aren't exercised by these tests, but the
+        // interface requires them — forward to the singleton variants so any accidental
+        // sub-routed call still records and returns sensibly.
+        public Task<TR> InvokeOnInstanceAsync<TQ, TR>(string svc, string id, string method, TQ req, CancellationToken ct = default)
+            => InvokeAsync<TQ, TR>(svc, method, req, ct);
+        public Task<TR> InvokeOnInstanceAsync<TR>(string svc, string id, string method, CancellationToken ct = default)
+            => InvokeAsync<TR>(svc, method, ct);
+        public Task InvokeOnInstanceAsync<TQ>(string svc, string id, string method, TQ req, CancellationToken ct = default)
+            => InvokeAsync(svc, method, req, ct);
     }
 }

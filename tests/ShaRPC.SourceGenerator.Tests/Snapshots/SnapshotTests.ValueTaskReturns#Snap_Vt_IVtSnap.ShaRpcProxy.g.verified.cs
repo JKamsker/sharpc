@@ -10,30 +10,40 @@ namespace Snap.Vt
     public sealed class VtSnapProxy : global::Snap.Vt.IVtSnap, global::Snap.Vt.IVtSnapAsync
     {
         private readonly global::ShaRPC.Core.Client.IShaRpcClient _client;
+        /// <summary>Non-null when this proxy targets a sub-service instance returned by a parent call.</summary>
+        private readonly string? _instanceId;
 
         public VtSnapProxy(global::ShaRPC.Core.Client.IShaRpcClient client)
         {
             _client = client ?? throw new global::System.ArgumentNullException(nameof(client));
+            _instanceId = null;
+        }
+
+        /// <summary>Constructs a proxy bound to a specific server-side instance.</summary>
+        public VtSnapProxy(global::ShaRPC.Core.Client.IShaRpcClient client, string instanceId)
+        {
+            _client = client ?? throw new global::System.ArgumentNullException(nameof(client));
+            _instanceId = instanceId ?? throw new global::System.ArgumentNullException(nameof(instanceId));
         }
 
         public async global::System.Threading.Tasks.ValueTask<int> AddAsync(int a, int b)
         {
-            return await _client.InvokeAsync<(int, int), int>("IVtSnap", "AddAsync", (a, b), default);
+            return await (_instanceId is null ? _client.InvokeAsync<(int, int), int>("IVtSnap", "AddAsync", (a, b), default) : _client.InvokeOnInstanceAsync<(int, int), int>("IVtSnap", _instanceId, "AddAsync", (a, b), default));
         }
 
         public async global::System.Threading.Tasks.ValueTask PingAsync()
         {
-            await _client.InvokeAsync<object>("IVtSnap", "PingAsync", new object(), default);
+            await (_instanceId is null ? _client.InvokeAsync<object>("IVtSnap", "PingAsync", new object(), default) : _client.InvokeOnInstanceAsync<object>("IVtSnap", _instanceId, "PingAsync", new object(), default));
         }
 
         public async global::System.Threading.Tasks.ValueTask<int> AddAsync(int a, int b, global::System.Threading.CancellationToken ct = default)
         {
-            return await _client.InvokeAsync<(int, int), int>("IVtSnap", "AddAsync", (a, b), ct);
+            return await (_instanceId is null ? _client.InvokeAsync<(int, int), int>("IVtSnap", "AddAsync", (a, b), ct) : _client.InvokeOnInstanceAsync<(int, int), int>("IVtSnap", _instanceId, "AddAsync", (a, b), ct));
         }
 
         public async global::System.Threading.Tasks.ValueTask PingAsync(global::System.Threading.CancellationToken ct = default)
         {
-            await _client.InvokeAsync<object>("IVtSnap", "PingAsync", new object(), ct);
+            await (_instanceId is null ? _client.InvokeAsync<object>("IVtSnap", "PingAsync", new object(), ct) : _client.InvokeOnInstanceAsync<object>("IVtSnap", _instanceId, "PingAsync", new object(), ct));
         }
     }
 }

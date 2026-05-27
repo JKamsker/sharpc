@@ -42,10 +42,20 @@ internal static class ProxyGenerator
         sb.AppendLine($"    public sealed class {proxyName} : {baseList}");
         sb.AppendLine("    {");
         sb.AppendLine("        private readonly global::ShaRPC.Core.Client.IShaRpcClient _client;");
+        sb.AppendLine("        /// <summary>Non-null when this proxy targets a sub-service instance returned by a parent call.</summary>");
+        sb.AppendLine("        private readonly string? _instanceId;");
         sb.AppendLine();
         sb.AppendLine($"        public {proxyName}(global::ShaRPC.Core.Client.IShaRpcClient client)");
         sb.AppendLine("        {");
         sb.AppendLine("            _client = client ?? throw new global::System.ArgumentNullException(nameof(client));");
+        sb.AppendLine("            _instanceId = null;");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+        sb.AppendLine($"        /// <summary>Constructs a proxy bound to a specific server-side instance.</summary>");
+        sb.AppendLine($"        public {proxyName}(global::ShaRPC.Core.Client.IShaRpcClient client, string instanceId)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            _client = client ?? throw new global::System.ArgumentNullException(nameof(client));");
+        sb.AppendLine("            _instanceId = instanceId ?? throw new global::System.ArgumentNullException(nameof(instanceId));");
         sb.AppendLine("        }");
 
         foreach (var method in service.Methods.Array)
@@ -126,61 +136,71 @@ internal static class ProxyGenerator
     }
 
     /// <summary>
-    /// Builds the call to <c>_client.InvokeAsync(...)</c>. Picks the most direct overload
-    /// available on <see cref="ShaRPC.Core.Client.IShaRpcClient"/> for the (parameter-count,
-    /// has-return-payload) shape of the user's method.
+    /// Builds the call to <c>_client.InvokeAsync</c> or <c>_client.InvokeOnInstanceAsync</c>.
+    /// For sub-service-returning methods, the wire response type is always
+    /// <c>ServiceHandle</c>; the caller wraps it in a generated sub-proxy. The emitted
+    /// expression branches on <c>_instanceId</c> so the same proxy class can serve both
+    /// the top-level and the nested-instance call paths.
     /// </summary>
     private static string BuildClientInvocation(ServiceModel service, MethodModel method, string ctArg)
     {
+        var isSubServiceReturn = NamingHelpers.IsSubServiceReturn(method.ReturnKind);
         var hasReturn = NamingHelpers.HasReturnValue(method.ReturnKind);
-        var returnType = method.UnwrappedReturnType;
+        var returnType = isSubServiceReturn
+            ? "global::ShaRPC.Core.Protocol.ServiceHandle"
+            : method.UnwrappedReturnType;
         var svc = service.ServiceName;
         var rpc = method.RpcName;
+
+        // Build the type-parameter list and argument list once; switch between the two
+        // overload prefixes via the ternary.
+        string typeArgs;
+        string callArgs;        // arguments after (service, method) for the singleton overload
+        string callArgsInst;    // arguments after (service, instanceId, method) for instance
 
         if (method.Parameters.Count == 0)
         {
             if (hasReturn)
             {
-                // Task<TResponse> InvokeAsync<TResponse>(svc, method, ct)
-                return $"_client.InvokeAsync<{returnType}>(\"{svc}\", \"{rpc}\", {ctArg})";
+                typeArgs = $"<{returnType}>";
+                callArgs = $"\"{svc}\", \"{rpc}\", {ctArg}";
+                callArgsInst = $"\"{svc}\", _instanceId, \"{rpc}\", {ctArg}";
             }
-
-            // Void / Task / ValueTask without response. We use the no-response overload
-            // (Task InvokeAsync<TRequest>) and pass a small dummy payload, because the
-            // no-request overload (#2) returns Task<TResponse> which would force the
-            // serializer to deserialize a response that the dispatcher never wrote.
-            return $"_client.InvokeAsync<object>(\"{svc}\", \"{rpc}\", new object(), {ctArg})";
+            else
+            {
+                typeArgs = "<object>";
+                callArgs = $"\"{svc}\", \"{rpc}\", new object(), {ctArg}";
+                callArgsInst = $"\"{svc}\", _instanceId, \"{rpc}\", new object(), {ctArg}";
+            }
         }
-
-        if (method.Parameters.Count == 1)
+        else if (method.Parameters.Count == 1)
         {
             var p = method.Parameters[0];
-            if (hasReturn)
+            typeArgs = hasReturn ? $"<{p.Type}, {returnType}>" : $"<{p.Type}>";
+            callArgs = $"\"{svc}\", \"{rpc}\", {p.Name}, {ctArg}";
+            callArgsInst = $"\"{svc}\", _instanceId, \"{rpc}\", {p.Name}, {ctArg}";
+        }
+        else
+        {
+            var tupleTypes = new StringBuilder();
+            var tupleValues = new StringBuilder();
+            for (var i = 0; i < method.Parameters.Count; i++)
             {
-                return $"_client.InvokeAsync<{p.Type}, {returnType}>(\"{svc}\", \"{rpc}\", {p.Name}, {ctArg})";
+                if (i > 0)
+                {
+                    tupleTypes.Append(", ");
+                    tupleValues.Append(", ");
+                }
+                tupleTypes.Append(method.Parameters[i].Type);
+                tupleValues.Append(method.Parameters[i].Name);
             }
-            return $"_client.InvokeAsync<{p.Type}>(\"{svc}\", \"{rpc}\", {p.Name}, {ctArg})";
+
+            typeArgs = hasReturn ? $"<({tupleTypes}), {returnType}>" : $"<({tupleTypes})>";
+            callArgs = $"\"{svc}\", \"{rpc}\", ({tupleValues}), {ctArg}";
+            callArgsInst = $"\"{svc}\", _instanceId, \"{rpc}\", ({tupleValues}), {ctArg}";
         }
 
-        // Multiple parameters — pack into a ValueTuple payload.
-        var tupleTypes = new StringBuilder();
-        var tupleValues = new StringBuilder();
-        for (var i = 0; i < method.Parameters.Count; i++)
-        {
-            if (i > 0)
-            {
-                tupleTypes.Append(", ");
-                tupleValues.Append(", ");
-            }
-            tupleTypes.Append(method.Parameters[i].Type);
-            tupleValues.Append(method.Parameters[i].Name);
-        }
-
-        if (hasReturn)
-        {
-            return $"_client.InvokeAsync<({tupleTypes}), {returnType}>(\"{svc}\", \"{rpc}\", ({tupleValues}), {ctArg})";
-        }
-        return $"_client.InvokeAsync<({tupleTypes})>(\"{svc}\", \"{rpc}\", ({tupleValues}), {ctArg})";
+        return $"(_instanceId is null ? _client.InvokeAsync{typeArgs}({callArgs}) : _client.InvokeOnInstanceAsync{typeArgs}({callArgsInst}))";
     }
 
     /// <summary>
@@ -240,6 +260,31 @@ internal static class ProxyGenerator
             case MethodReturnKind.ValueTaskOf:
                 sb.AppendLine($"            return await {invocation};");
                 break;
+
+            case MethodReturnKind.TaskOfSubService:
+            case MethodReturnKind.ValueTaskOfSubService:
+            {
+                // Wire response is a ServiceHandle; wrap it in the generated sub-proxy.
+                // The sub-proxy class lives in the SAME namespace as its interface, named
+                // {StripI(InterfaceName)}Proxy — derived from SubService.QualifiedInterfaceName.
+                var info = method.SubService!;
+                var subProxyType = BuildSubProxyTypeName(info.QualifiedInterfaceName);
+                sb.AppendLine($"            var __handle = await {invocation};");
+                sb.AppendLine($"            return new {subProxyType}(_client, __handle.InstanceId);");
+                break;
+            }
         }
+    }
+
+    /// <summary>
+    /// From <c>global::App.ISubService</c> derive <c>global::App.SubServiceProxy</c>.
+    /// Mirrors the StripInterfacePrefix + "Proxy" convention used for all generated proxies.
+    /// </summary>
+    private static string BuildSubProxyTypeName(string qualifiedInterfaceName)
+    {
+        var lastDot = qualifiedInterfaceName.LastIndexOf('.');
+        var qualifierPart = lastDot >= 0 ? qualifiedInterfaceName.Substring(0, lastDot + 1) : string.Empty;
+        var simpleName = lastDot >= 0 ? qualifiedInterfaceName.Substring(lastDot + 1) : qualifiedInterfaceName;
+        return qualifierPart + NamingHelpers.StripInterfacePrefix(simpleName) + "Proxy";
     }
 }

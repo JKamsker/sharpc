@@ -387,10 +387,11 @@ public class CodegenRegressionTests
         var asm = alc.LoadFromStream(ms);
 
         var proxyType = asm.GetType("Regress.RefOutRuntime.RorProxy")!;
-        var ctorParam = proxyType.GetConstructors().Single().GetParameters()[0].ParameterType;
-        // Build a no-op client implementation via DispatchProxy.
+        // The proxy now exposes two constructors (top-level and instance-scoped); pick
+        // the single-arg one to construct a top-level proxy for the test.
+        var topLevelCtor = proxyType.GetConstructors().Single(c => c.GetParameters().Length == 1);
         var client = Activator.CreateInstance(typeof(NullClient))!;
-        var proxy = Activator.CreateInstance(proxyType, client)!;
+        var proxy = topLevelCtor.Invoke(new[] { client })!;
 
         // Invoke BadOut via reflection — should throw NotSupportedException through
         // the TargetInvocationException wrapper.
@@ -457,6 +458,15 @@ public class CodegenRegressionTests
         public Task<TR> InvokeAsync<TR>(string s, string m, System.Threading.CancellationToken ct = default) => Task.FromResult(default(TR)!);
         public Task InvokeAsync<TQ>(string s, string m, TQ q, System.Threading.CancellationToken ct = default) => Task.CompletedTask;
         public System.Threading.Tasks.ValueTask DisposeAsync() => default;
+
+        // Feature-2 instance overloads forward to the singleton ones so the existing
+        // assertions still observe sub-routed calls if a test were to exercise them.
+        public Task<TR> InvokeOnInstanceAsync<TQ, TR>(string s, string id, string m, TQ q, System.Threading.CancellationToken ct = default)
+            => InvokeAsync<TQ, TR>(s, m, q, ct);
+        public Task<TR> InvokeOnInstanceAsync<TR>(string s, string id, string m, System.Threading.CancellationToken ct = default)
+            => InvokeAsync<TR>(s, m, ct);
+        public Task InvokeOnInstanceAsync<TQ>(string s, string id, string m, TQ q, System.Threading.CancellationToken ct = default)
+            => InvokeAsync<TQ>(s, m, q, ct);
     }
 
     /// <summary>
@@ -642,6 +652,15 @@ public class CodegenRegressionTests
         public Task InvokeAsync<TQ>(string s, string m, TQ q, System.Threading.CancellationToken ct = default)
             => Task.CompletedTask;
         public System.Threading.Tasks.ValueTask DisposeAsync() => default;
+
+        // Feature-2 instance overloads forward to the singleton ones so the existing
+        // assertions still observe sub-routed calls if a test were to exercise them.
+        public Task<TR> InvokeOnInstanceAsync<TQ, TR>(string s, string id, string m, TQ q, System.Threading.CancellationToken ct = default)
+            => InvokeAsync<TQ, TR>(s, m, q, ct);
+        public Task<TR> InvokeOnInstanceAsync<TR>(string s, string id, string m, System.Threading.CancellationToken ct = default)
+            => InvokeAsync<TR>(s, m, ct);
+        public Task InvokeOnInstanceAsync<TQ>(string s, string id, string m, TQ q, System.Threading.CancellationToken ct = default)
+            => InvokeAsync<TQ>(s, m, q, ct);
     }
 
     /// <summary>An IShaRpcClient that records which overload was actually called.</summary>
@@ -670,5 +689,14 @@ public class CodegenRegressionTests
             return Task.CompletedTask;
         }
         public System.Threading.Tasks.ValueTask DisposeAsync() => default;
+
+        // Feature-2 instance overloads forward to the singleton ones so the existing
+        // assertions still observe sub-routed calls if a test were to exercise them.
+        public Task<TR> InvokeOnInstanceAsync<TQ, TR>(string s, string id, string m, TQ q, System.Threading.CancellationToken ct = default)
+            => InvokeAsync<TQ, TR>(s, m, q, ct);
+        public Task<TR> InvokeOnInstanceAsync<TR>(string s, string id, string m, System.Threading.CancellationToken ct = default)
+            => InvokeAsync<TR>(s, m, ct);
+        public Task InvokeOnInstanceAsync<TQ>(string s, string id, string m, TQ q, System.Threading.CancellationToken ct = default)
+            => InvokeAsync<TQ>(s, m, q, ct);
     }
 }

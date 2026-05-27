@@ -10,10 +10,20 @@ namespace Snap.RefOut
     public sealed class RefOutSnapProxy : global::Snap.RefOut.IRefOutSnap, global::Snap.RefOut.IRefOutSnapAsync
     {
         private readonly global::ShaRPC.Core.Client.IShaRpcClient _client;
+        /// <summary>Non-null when this proxy targets a sub-service instance returned by a parent call.</summary>
+        private readonly string? _instanceId;
 
         public RefOutSnapProxy(global::ShaRPC.Core.Client.IShaRpcClient client)
         {
             _client = client ?? throw new global::System.ArgumentNullException(nameof(client));
+            _instanceId = null;
+        }
+
+        /// <summary>Constructs a proxy bound to a specific server-side instance.</summary>
+        public RefOutSnapProxy(global::ShaRPC.Core.Client.IShaRpcClient client, string instanceId)
+        {
+            _client = client ?? throw new global::System.ArgumentNullException(nameof(client));
+            _instanceId = instanceId ?? throw new global::System.ArgumentNullException(nameof(instanceId));
         }
 
         public void BadOut(out int x)
@@ -23,12 +33,12 @@ namespace Snap.RefOut
 
         public async global::System.Threading.Tasks.Task<int> GoodAsync(int a)
         {
-            return await _client.InvokeAsync<int, int>("IRefOutSnap", "GoodAsync", a, default);
+            return await (_instanceId is null ? _client.InvokeAsync<int, int>("IRefOutSnap", "GoodAsync", a, default) : _client.InvokeOnInstanceAsync<int, int>("IRefOutSnap", _instanceId, "GoodAsync", a, default));
         }
 
         public async global::System.Threading.Tasks.Task<int> GoodAsync(int a, global::System.Threading.CancellationToken ct = default)
         {
-            return await _client.InvokeAsync<int, int>("IRefOutSnap", "GoodAsync", a, ct);
+            return await (_instanceId is null ? _client.InvokeAsync<int, int>("IRefOutSnap", "GoodAsync", a, ct) : _client.InvokeOnInstanceAsync<int, int>("IRefOutSnap", _instanceId, "GoodAsync", a, ct));
         }
     }
 }
