@@ -124,7 +124,7 @@ internal static class ServiceModelFactory
             methodLocations.Add(methodLocation);
         }
 
-        WireNameValidator.MarkDuplicateWireNames(displayName, methods, methodLocations, methodDiagnostics);
+        WireNameValidator.MarkDuplicateWireNames(displayName, methods, methodLocations, methodDiagnostics, ct);
 
         var ns = interfaceSymbol.ContainingNamespace.IsGlobalNamespace
             ? string.Empty

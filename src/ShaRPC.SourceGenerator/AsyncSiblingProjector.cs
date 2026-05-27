@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Threading;
 
 namespace ShaRPC.SourceGenerator;
@@ -31,7 +32,7 @@ internal static class AsyncSiblingProjector
             string siblingName = NamingHelpers.IsAsync(m.ReturnKind)
                 ? m.Name
                 : NamingHelpers.AsyncSiblingMethodName(m.Name);
-            var siblingParameters = BuildAsyncSiblingParameters(m);
+            var siblingParameters = BuildAsyncSiblingParameters(m, ct);
 
             var siblingReturnKind = m.ReturnKind switch
             {
@@ -41,7 +42,7 @@ internal static class AsyncSiblingProjector
             };
 
             var siblingNameMatches = siblingName == m.Name;
-            var signatureMatches = ParametersEqual(m.Parameters, siblingParameters);
+            var signatureMatches = ParametersEqual(m.Parameters, siblingParameters, ct);
             var requiresExtra = !(siblingNameMatches && signatureMatches && NamingHelpers.IsAsync(m.ReturnKind));
 
             candidates.Add(new AsyncSiblingMethod(
@@ -57,7 +58,7 @@ internal static class AsyncSiblingProjector
         foreach (var candidate in candidates)
         {
             ct.ThrowIfCancellationRequested();
-            var key = SignatureKey(candidate);
+            var key = SignatureKey(candidate, ct);
             if (!groups.TryGetValue(key, out var group))
             {
                 group = new List<AsyncSiblingMethod>();
@@ -71,7 +72,7 @@ internal static class AsyncSiblingProjector
         foreach (var candidate in candidates)
         {
             ct.ThrowIfCancellationRequested();
-            var key = SignatureKey(candidate);
+            var key = SignatureKey(candidate, ct);
             if (!handledKeys.Add(key))
             {
                 continue;
@@ -92,6 +93,8 @@ internal static class AsyncSiblingProjector
 
             foreach (var row in group)
             {
+                ct.ThrowIfCancellationRequested();
+
                 if (ReferenceEquals(row, keeper))
                 {
                     continue;
@@ -121,11 +124,31 @@ internal static class AsyncSiblingProjector
         return methodLocations[sourceIndex];
     }
 
-    private static string SignatureKey(AsyncSiblingMethod method) =>
-        method.Name + "(" +
-        string.Join(",", method.Parameters.Array.Select(p => p.RefKindKeyword + p.Type)) + ")";
+    private static string SignatureKey(AsyncSiblingMethod method, CancellationToken ct)
+    {
+        var sb = new StringBuilder(method.Name);
+        sb.Append('(');
+        for (var i = 0; i < method.Parameters.Count; i++)
+        {
+            ct.ThrowIfCancellationRequested();
 
-    private static EquatableArray<ParameterModel> BuildAsyncSiblingParameters(MethodModel method)
+            if (i > 0)
+            {
+                sb.Append(',');
+            }
+
+            var parameter = method.Parameters[i];
+            sb.Append(parameter.RefKindKeyword);
+            sb.Append(parameter.Type);
+        }
+
+        sb.Append(')');
+        return sb.ToString();
+    }
+
+    private static EquatableArray<ParameterModel> BuildAsyncSiblingParameters(
+        MethodModel method,
+        CancellationToken ct)
     {
         if (NamingHelpers.IsAsync(method.ReturnKind) && method.HasCancellationToken)
         {
@@ -135,6 +158,8 @@ internal static class AsyncSiblingProjector
         var parameters = new List<ParameterModel>();
         foreach (var parameter in method.Parameters.Array)
         {
+            ct.ThrowIfCancellationRequested();
+
             if (!parameter.IsCancellationToken)
             {
                 parameters.Add(parameter);
@@ -142,7 +167,7 @@ internal static class AsyncSiblingProjector
         }
 
         parameters.Add(new ParameterModel(
-            UniqueParameterName(method.Parameters, "ct"),
+            UniqueParameterName(method.Parameters, "ct", ct),
             "global::System.Threading.CancellationToken",
             IsCancellationToken: true,
             HasDefaultValue: true));
@@ -150,11 +175,15 @@ internal static class AsyncSiblingProjector
         return parameters.ToEquatableArray();
     }
 
-    private static string UniqueParameterName(EquatableArray<ParameterModel> parameters, string baseName)
+    private static string UniqueParameterName(
+        EquatableArray<ParameterModel> parameters,
+        string baseName,
+        CancellationToken ct)
     {
         var usedNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (var parameter in parameters.Array)
         {
+            ct.ThrowIfCancellationRequested();
             usedNames.Add(parameter.Name);
         }
 
@@ -162,6 +191,8 @@ internal static class AsyncSiblingProjector
         var suffix = 1;
         while (usedNames.Contains(candidate))
         {
+            ct.ThrowIfCancellationRequested();
+
             candidate = baseName + suffix;
             suffix++;
         }
@@ -171,7 +202,8 @@ internal static class AsyncSiblingProjector
 
     private static bool ParametersEqual(
         EquatableArray<ParameterModel> left,
-        EquatableArray<ParameterModel> right)
+        EquatableArray<ParameterModel> right,
+        CancellationToken ct)
     {
         if (left.Count != right.Count)
         {
@@ -180,6 +212,8 @@ internal static class AsyncSiblingProjector
 
         for (var i = 0; i < left.Count; i++)
         {
+            ct.ThrowIfCancellationRequested();
+
             if (left[i] != right[i])
             {
                 return false;

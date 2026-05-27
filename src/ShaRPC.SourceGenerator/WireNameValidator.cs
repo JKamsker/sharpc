@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 
 namespace ShaRPC.SourceGenerator;
 
@@ -9,11 +10,14 @@ internal static class WireNameValidator
         string interfaceName,
         List<MethodModel> methods,
         List<DiagnosticLocation> methodLocations,
-        List<MethodDiagnostic> methodDiagnostics)
+        List<MethodDiagnostic> methodDiagnostics,
+        CancellationToken ct)
     {
         var counts = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var method in methods)
         {
+            ct.ThrowIfCancellationRequested();
+
             if (method.UnsupportedReason is not null)
             {
                 continue;
@@ -25,6 +29,8 @@ internal static class WireNameValidator
 
         for (var i = 0; i < methods.Count; i++)
         {
+            ct.ThrowIfCancellationRequested();
+
             var method = methods[i];
             if (method.UnsupportedReason is not null ||
                 !counts.TryGetValue(method.RpcName, out var count) ||
