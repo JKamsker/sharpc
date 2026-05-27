@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
 
 namespace ShaRPC.SourceGenerator;
 
@@ -12,7 +13,10 @@ namespace ShaRPC.SourceGenerator;
 /// </summary>
 internal static class ProxyGenerator
 {
-    public static string Generate(ServiceModel service, EquatableArray<AsyncSiblingMethod> siblingMethods)
+    public static string Generate(
+        ServiceModel service,
+        EquatableArray<AsyncSiblingMethod> siblingMethods,
+        CancellationToken ct = default)
     {
         var sb = new StringBuilder();
         var proxyName = NamingHelpers.StripInterfacePrefix(service.InterfaceName) + "Proxy";
@@ -61,6 +65,7 @@ internal static class ProxyGenerator
 
         foreach (var method in service.Methods.Array)
         {
+            ct.ThrowIfCancellationRequested();
             sb.AppendLine();
             GenerateProxyMethod(sb, service, method);
         }
@@ -71,6 +76,7 @@ internal static class ProxyGenerator
         // for the rows that genuinely differ.
         foreach (var s in siblingMethods.Array)
         {
+            ct.ThrowIfCancellationRequested();
             if (!s.RequiresExtraProxyMethod)
             {
                 continue;

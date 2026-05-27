@@ -1,4 +1,5 @@
 using System.Text;
+using System.Threading;
 
 namespace ShaRPC.SourceGenerator;
 
@@ -12,7 +13,10 @@ namespace ShaRPC.SourceGenerator;
 /// </summary>
 internal static class AsyncInterfaceGenerator
 {
-    public static string Generate(ServiceModel service, EquatableArray<AsyncSiblingMethod> siblingMethods)
+    public static string Generate(
+        ServiceModel service,
+        EquatableArray<AsyncSiblingMethod> siblingMethods,
+        CancellationToken ct = default)
     {
         var siblingName = NamingHelpers.AsyncSiblingInterfaceName(service.InterfaceName);
 
@@ -37,6 +41,7 @@ internal static class AsyncInterfaceGenerator
         var first = true;
         foreach (var s in siblingMethods.Array)
         {
+            ct.ThrowIfCancellationRequested();
             if (s.Source.UnsupportedReason is not null)
             {
                 // The sync method couldn't be marshalled in the first place — there's no point

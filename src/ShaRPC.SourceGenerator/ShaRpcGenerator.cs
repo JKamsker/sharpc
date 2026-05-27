@@ -126,14 +126,14 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
         // every downstream step (per-service source output, SHARPC004 diagnostics) flows
         // through one value-equatable record.
         var bundles = models
-            .Select(static (m, _) =>
+            .Select(static (m, ct) =>
             {
                 if (!NamingHelpers.CanGenerateAsyncSiblingInterface(m.InterfaceName))
                 {
                     return ServiceBundle.Empty(m);
                 }
 
-                var (siblings, collisions) = ComputeAsyncSiblingMethods(m);
+                var (siblings, collisions) = ComputeAsyncSiblingMethods(m, ct);
                 return new ServiceBundle(m, siblings, collisions);
             })
             .WithTrackingName("ServiceBundles");
@@ -156,19 +156,20 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
             try
             {
                 var hintPrefix = HintNamePrefix(bundle.Model);
-                var proxySource = ProxyGenerator.Generate(bundle.Model, bundle.SiblingMethods);
+                var ct = spc.CancellationToken;
+                var proxySource = ProxyGenerator.Generate(bundle.Model, bundle.SiblingMethods, ct);
                 spc.AddSource(
                     $"{hintPrefix}.ShaRpcProxy.g.cs",
                     SourceText.From(proxySource, Encoding.UTF8));
 
-                var dispatcherSource = DispatcherGenerator.Generate(bundle.Model);
+                var dispatcherSource = DispatcherGenerator.Generate(bundle.Model, ct);
                 spc.AddSource(
                     $"{hintPrefix}.ShaRpcDispatcher.g.cs",
                     SourceText.From(dispatcherSource, Encoding.UTF8));
 
                 if (!bundle.SiblingMethods.IsEmpty)
                 {
-                    var asyncSource = AsyncInterfaceGenerator.Generate(bundle.Model, bundle.SiblingMethods);
+                    var asyncSource = AsyncInterfaceGenerator.Generate(bundle.Model, bundle.SiblingMethods, ct);
                     spc.AddSource(
                         $"{hintPrefix}.ShaRpcAsync.g.cs",
                         SourceText.From(asyncSource, Encoding.UTF8));
@@ -206,7 +207,7 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
 
             try
             {
-                var extensionsSource = GenerateExtensions(services);
+                var extensionsSource = GenerateExtensions(services, spc.CancellationToken);
                 spc.AddSource(
                     "ShaRpcExtensions.g.cs",
                     SourceText.From(extensionsSource, Encoding.UTF8));
@@ -849,13 +850,14 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
     /// SHARPC004 warnings.
     /// </summary>
     internal static (EquatableArray<AsyncSiblingMethod> Siblings, EquatableArray<MethodDiagnostic> Collisions)
-        ComputeAsyncSiblingMethods(ServiceModel service)
+        ComputeAsyncSiblingMethods(ServiceModel service, CancellationToken ct = default)
     {
         var candidates = new List<AsyncSiblingMethod>();
         var collisions = new List<MethodDiagnostic>();
 
         foreach (var m in service.Methods.Array)
         {
+            ct.ThrowIfCancellationRequested();
             // Unsupported (ref/in/out) methods don't get exposed on the sibling — they
             // already have a SHARPC002 diagnostic and a throwing stub on the proxy.
             if (m.UnsupportedReason is not null)
@@ -892,6 +894,7 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
         var groups = new Dictionary<string, List<AsyncSiblingMethod>>(StringComparer.Ordinal);
         foreach (var candidate in candidates)
         {
+            ct.ThrowIfCancellationRequested();
             var key = AsyncSiblingSignatureKey(candidate);
             if (!groups.TryGetValue(key, out var group))
             {
@@ -905,6 +908,7 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
         var handledKeys = new HashSet<string>(StringComparer.Ordinal);
         foreach (var candidate in candidates)
         {
+            ct.ThrowIfCancellationRequested();
             var key = AsyncSiblingSignatureKey(candidate);
             if (!handledKeys.Add(key))
             {
@@ -1039,7 +1043,7 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
         return sb.ToString();
     }
 
-    private static string GenerateExtensions(EquatableArray<ServiceModel> services)
+    private static string GenerateExtensions(EquatableArray<ServiceModel> services, CancellationToken ct = default)
     {
         var sb = new StringBuilder();
         // Pre-compute the set of short-name collisions across all services so the extension
@@ -1049,6 +1053,7 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
         var shortNameCounts = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var s in services)
         {
+            ct.ThrowIfCancellationRequested();
             var sn = NamingHelpers.StripInterfacePrefix(s.InterfaceName);
             shortNameCounts.TryGetValue(sn, out var count);
             shortNameCounts[sn] = count + 1;
@@ -1067,6 +1072,7 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
 
         foreach (var service in services)
         {
+            ct.ThrowIfCancellationRequested();
             var serviceName = NamingHelpers.StripInterfacePrefix(service.InterfaceName);
             // Disambiguate the extension method suffix when multiple services share the
             // same short name. The proxy/dispatcher CLASS names (defined in their own

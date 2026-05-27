@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
 
 namespace ShaRPC.SourceGenerator;
 
@@ -17,7 +18,7 @@ namespace ShaRPC.SourceGenerator;
 /// </summary>
 internal static class DispatcherGenerator
 {
-    public static string Generate(ServiceModel service)
+    public static string Generate(ServiceModel service, CancellationToken ct = default)
     {
         var sb = new StringBuilder();
         var dispatcherName = NamingHelpers.StripInterfacePrefix(service.InterfaceName) + "Dispatcher";
@@ -47,8 +48,8 @@ internal static class DispatcherGenerator
         sb.AppendLine();
         sb.AppendLine($"        public string ServiceName => \"{service.ServiceName}\";");
 
-        EmitDispatchAsync(sb, service, qualifiedInterface, isInstanceScoped: false);
-        EmitDispatchAsync(sb, service, qualifiedInterface, isInstanceScoped: true);
+        EmitDispatchAsync(sb, service, qualifiedInterface, isInstanceScoped: false, ct);
+        EmitDispatchAsync(sb, service, qualifiedInterface, isInstanceScoped: true, ct);
 
         sb.AppendLine("    }");
 
@@ -70,7 +71,12 @@ internal static class DispatcherGenerator
     /// (instance case). Both share the same switch body — only the receiver expression
     /// differs (<c>_service</c> vs the registry-resolved instance).
     /// </summary>
-    private static void EmitDispatchAsync(StringBuilder sb, ServiceModel service, string qualifiedInterface, bool isInstanceScoped)
+    private static void EmitDispatchAsync(
+        StringBuilder sb,
+        ServiceModel service,
+        string qualifiedInterface,
+        bool isInstanceScoped,
+        CancellationToken ct)
     {
         sb.AppendLine();
         // CS1998: when every method on the service is sync the body has no `await`, but
@@ -106,6 +112,7 @@ internal static class DispatcherGenerator
 
         foreach (var m in service.Methods.Array)
         {
+            ct.ThrowIfCancellationRequested();
             GenerateDispatchCase(sb, service, m, receiver);
         }
 
