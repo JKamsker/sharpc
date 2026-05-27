@@ -641,13 +641,8 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
     internal static (EquatableArray<AsyncSiblingMethod> Siblings, EquatableArray<MethodDiagnostic> Collisions)
         ComputeAsyncSiblingMethods(ServiceModel service)
     {
-        var rows = new List<AsyncSiblingMethod>();
+        var candidates = new List<AsyncSiblingMethod>();
         var collisions = new List<MethodDiagnostic>();
-        // Key on (siblingName, parameter-type-list) — that's what would collide on the
-        // sibling interface declaration. We deliberately ignore return type, because two
-        // methods with the same name and parameters but different returns can't coexist
-        // on a C# interface at all.
-        var seen = new Dictionary<string, MethodModel>(StringComparer.Ordinal);
 
         foreach (var m in service.Methods.Array)
         {
@@ -662,19 +657,6 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
                 ? m.Name
                 : NamingHelpers.AsyncSiblingMethodName(m.Name);
             var siblingParameters = BuildAsyncSiblingParameters(m);
-
-            var key = siblingName + "(" +
-                string.Join(",", siblingParameters.Array.Select(p => p.RefKindKeyword + p.Type)) + ")";
-
-            if (seen.TryGetValue(key, out var clash))
-            {
-                collisions.Add(new MethodDiagnostic(
-                    service.InterfaceName,
-                    m.Name,
-                    $"the async-sibling projection '{siblingName}' would collide with '{clash.Name}'. Rename one of the methods or drop the trailing 'Async' on the sync method."));
-                continue;
-            }
-            seen[key] = m;
 
             // The sibling return kind:
             // - sync void → Task
@@ -694,11 +676,65 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
             var signatureMatches = ParametersEqual(m.Parameters, siblingParameters);
             var requiresExtra = !(siblingNameMatches && signatureMatches && NamingHelpers.IsAsync(m.ReturnKind));
 
-            rows.Add(new AsyncSiblingMethod(siblingName, m, siblingReturnKind, siblingParameters, requiresExtra));
+            candidates.Add(new AsyncSiblingMethod(siblingName, m, siblingReturnKind, siblingParameters, requiresExtra));
+        }
+
+        var groups = new Dictionary<string, List<AsyncSiblingMethod>>(StringComparer.Ordinal);
+        foreach (var candidate in candidates)
+        {
+            var key = AsyncSiblingSignatureKey(candidate);
+            if (!groups.TryGetValue(key, out var group))
+            {
+                group = new List<AsyncSiblingMethod>();
+                groups[key] = group;
+            }
+            group.Add(candidate);
+        }
+
+        var rows = new List<AsyncSiblingMethod>();
+        var handledKeys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var candidate in candidates)
+        {
+            var key = AsyncSiblingSignatureKey(candidate);
+            if (!handledKeys.Add(key))
+            {
+                continue;
+            }
+
+            var group = groups[key];
+            if (group.Count == 1)
+            {
+                rows.Add(candidate);
+                continue;
+            }
+
+            var keeper = group.FirstOrDefault(static row => !row.RequiresExtraProxyMethod);
+            if (keeper is not null)
+            {
+                rows.Add(keeper);
+            }
+
+            foreach (var row in group)
+            {
+                if (ReferenceEquals(row, keeper))
+                {
+                    continue;
+                }
+
+                var other = group.First(candidateRow => !ReferenceEquals(candidateRow, row));
+                collisions.Add(new MethodDiagnostic(
+                    service.InterfaceName,
+                    row.Source.Name,
+                    $"the async-sibling projection '{row.Name}' would collide with '{other.Source.Name}'. Rename one of the methods or drop the trailing 'Async' on the sync method."));
+            }
         }
 
         return (rows.ToEquatableArray(), collisions.ToEquatableArray());
     }
+
+    private static string AsyncSiblingSignatureKey(AsyncSiblingMethod method) =>
+        method.Name + "(" +
+        string.Join(",", method.Parameters.Array.Select(p => p.RefKindKeyword + p.Type)) + ")";
 
     private static EquatableArray<ParameterModel> BuildAsyncSiblingParameters(MethodModel method)
     {
@@ -717,12 +753,31 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
         }
 
         parameters.Add(new ParameterModel(
-            "ct",
+            UniqueParameterName(method.Parameters, "ct"),
             "global::System.Threading.CancellationToken",
             IsCancellationToken: true,
             HasDefaultValue: true));
 
         return parameters.ToEquatableArray();
+    }
+
+    private static string UniqueParameterName(EquatableArray<ParameterModel> parameters, string baseName)
+    {
+        var usedNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var parameter in parameters.Array)
+        {
+            usedNames.Add(parameter.Name);
+        }
+
+        var candidate = baseName;
+        var suffix = 1;
+        while (usedNames.Contains(candidate))
+        {
+            candidate = baseName + suffix;
+            suffix++;
+        }
+
+        return candidate;
     }
 
     private static bool ParametersEqual(

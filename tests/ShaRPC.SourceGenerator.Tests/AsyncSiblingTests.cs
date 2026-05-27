@@ -164,6 +164,87 @@ public class AsyncSiblingTests
     }
 
     /// <summary>
+    /// When a projected sync method collides with a real async method that already has
+    /// the sibling signature, the real method should satisfy the sibling and the proxy
+    /// must not emit a duplicate extra method.
+    /// </summary>
+    [Fact]
+    public void SyncProjectionColliding_WithExistingAsyncCtMethod_DoesNotEmitDuplicateProxyMethod()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading;
+            using System.Threading.Tasks;
+
+            namespace AsyncSibling.H
+            {
+                [ShaRpcService]
+                public interface IClashCt
+                {
+                    int Add(int x);
+                    Task<int> AddAsync(int x, CancellationToken ct = default);
+                }
+            }
+            """;
+
+        var (asm, runResult) = Compile(source);
+
+        runResult.Diagnostics.Should().Contain(d => d.Id == "SHARPC004");
+
+        var proxy = asm.GetType("AsyncSibling.H.ClashCtProxy")!;
+        var addAsyncMethods = proxy.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .Where(m => m.Name == "AddAsync")
+            .Where(m =>
+            {
+                var parameters = m.GetParameters();
+                return parameters.Length == 2 &&
+                    parameters[0].ParameterType == typeof(int) &&
+                    parameters[1].ParameterType == typeof(CancellationToken);
+            })
+            .ToArray();
+        addAsyncMethods.Should().ContainSingle(
+            "the original AddAsync implementation should satisfy the sibling signature");
+    }
+
+    /// <summary>
+    /// The generated CancellationToken parameter on a sibling method must avoid names
+    /// already used by payload parameters.
+    /// </summary>
+    [Fact]
+    public void GeneratedSiblingCancellationTokenParameter_AvoidsUserParameterNameCollision()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+
+            namespace AsyncSibling.I
+            {
+                [ShaRpcService]
+                public interface INameCollision
+                {
+                    int Echo(int ct);
+                }
+            }
+            """;
+
+        var (_, runResult) = Compile(source);
+
+        var generated = runResult.Results.Single().GeneratedSources;
+        var sibling = generated
+            .Single(g => g.HintName == "AsyncSibling_I_INameCollision.ShaRpcAsync.g.cs")
+            .SourceText.ToString();
+        sibling.Should().Contain(
+            "EchoAsync(int ct, global::System.Threading.CancellationToken ct1 = default);");
+
+        var proxy = generated
+            .Single(g => g.HintName == "AsyncSibling_I_INameCollision.ShaRpcProxy.g.cs")
+            .SourceText.ToString();
+        proxy.Should().Contain(
+            "EchoAsync(int ct, global::System.Threading.CancellationToken ct1 = default)");
+        proxy.Should().Contain(
+            "InvokeAsync<int, int>(\"INameCollision\", \"Echo\", ct, ct1)");
+    }
+
+    /// <summary>
     /// The async sibling source file is emitted under its own hint name and the proxy
     /// references the sibling by its fully-qualified name, so it compiles even when
     /// dropped into a project with overlapping using imports.
