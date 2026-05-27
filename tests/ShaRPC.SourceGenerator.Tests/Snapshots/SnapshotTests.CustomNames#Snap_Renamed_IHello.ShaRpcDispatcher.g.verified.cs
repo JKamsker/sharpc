@@ -31,7 +31,7 @@ namespace Snap.Renamed
                     return serializer.Serialize(result);
                 }
                 default:
-                    throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException($"Method '{method}' not found on service 'Greeter'.");
+                    throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException("Method '" + method + "' not found on service 'Greeter'.");
             }
         }
 
@@ -41,7 +41,7 @@ namespace Snap.Renamed
         {
             if (!registry.TryGet("Greeter", instanceId, out var __obj) || __obj is not global::Snap.Renamed.IHello __inst)
             {
-                throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException($"Instance '{instanceId}' not found for service 'Greeter'.");
+                throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException("Instance '" + instanceId + "' not found for service 'Greeter'.");
             }
             switch (method)
             {
@@ -52,7 +52,7 @@ namespace Snap.Renamed
                     return serializer.Serialize(result);
                 }
                 default:
-                    throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException($"Method '{method}' not found on service 'Greeter'.");
+                    throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException("Method '" + method + "' not found on service 'Greeter'.");
             }
         }
     }

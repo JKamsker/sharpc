@@ -680,7 +680,7 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
 
         info = new SubServiceInfo(
             QualifiedInterfaceName: named.ToDisplayString(s_qualifiedFormat),
-            ServiceName: serviceName);
+            ServiceName: EscapeStringLiteral(serviceName));
         return true;
     }
 

@@ -47,7 +47,7 @@ namespace Snap.Mixed
                     return global::System.Array.Empty<byte>();
                 }
                 default:
-                    throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException($"Method '{method}' not found on service 'IMix'.");
+                    throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException("Method '" + method + "' not found on service 'IMix'.");
             }
         }
 
@@ -57,7 +57,7 @@ namespace Snap.Mixed
         {
             if (!registry.TryGet("IMix", instanceId, out var __obj) || __obj is not global::Snap.Mixed.IMix __inst)
             {
-                throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException($"Instance '{instanceId}' not found for service 'IMix'.");
+                throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException("Instance '" + instanceId + "' not found for service 'IMix'.");
             }
             switch (method)
             {
@@ -84,7 +84,7 @@ namespace Snap.Mixed
                     return global::System.Array.Empty<byte>();
                 }
                 default:
-                    throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException($"Method '{method}' not found on service 'IMix'.");
+                    throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException("Method '" + method + "' not found on service 'IMix'.");
             }
         }
     }

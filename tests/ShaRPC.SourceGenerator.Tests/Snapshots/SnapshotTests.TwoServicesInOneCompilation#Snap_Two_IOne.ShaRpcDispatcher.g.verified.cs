@@ -31,7 +31,7 @@ namespace Snap.Two
                     return serializer.Serialize(result);
                 }
                 default:
-                    throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException($"Method '{method}' not found on service 'IOne'.");
+                    throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException("Method '" + method + "' not found on service 'IOne'.");
             }
         }
 
@@ -41,7 +41,7 @@ namespace Snap.Two
         {
             if (!registry.TryGet("IOne", instanceId, out var __obj) || __obj is not global::Snap.Two.IOne __inst)
             {
-                throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException($"Instance '{instanceId}' not found for service 'IOne'.");
+                throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException("Instance '" + instanceId + "' not found for service 'IOne'.");
             }
             switch (method)
             {
@@ -52,7 +52,7 @@ namespace Snap.Two
                     return serializer.Serialize(result);
                 }
                 default:
-                    throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException($"Method '{method}' not found on service 'IOne'.");
+                    throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException("Method '" + method + "' not found on service 'IOne'.");
             }
         }
     }

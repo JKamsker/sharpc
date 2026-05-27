@@ -263,6 +263,41 @@ public class CodegenRegressionTests
         AssertCompiles(final);
     }
 
+    [Fact]
+    public void ServiceAndSubServiceNames_WithQuotesAndBraces_AreEscapedEverywhere()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading.Tasks;
+
+            namespace Regress.SubServiceEscape
+            {
+                [ShaRpcService(Name = "Sub\"{Svc")]
+                public interface ISub
+                {
+                    Task<int> CountAsync();
+                }
+
+                [ShaRpcService(Name = "Root{Svc")]
+                public interface IRoot
+                {
+                    Task<ISub> GetSubAsync();
+                }
+            }
+            """;
+
+        var (final, runResult) = Run(source);
+        AssertCompiles(final);
+
+        var dispatcher = runResult.Results.Single().GeneratedSources
+            .Single(g => g.HintName == GeneratorTestHelper.HintName(
+                "Regress.SubServiceEscape", "IRoot", GeneratorTestHelper.GeneratedKind.Dispatcher))
+            .SourceText.ToString();
+        dispatcher.Should().Contain("registry.Register(\"Sub\\\"{Svc\", __sub)");
+        dispatcher.Should().Contain("ServiceName = \"Sub\\\"{Svc\"");
+        dispatcher.Should().Contain("\"Method '\" + method + \"' not found on service 'Root{Svc'.\"");
+    }
+
     // Note: ZeroParamVoidMethod_UsesNoResponseOverload (string-Contains on "new object()")
     // was deleted in favour of ZeroParamVoid_AtRuntime_SelectsNoResponseOverload below,
     // which proves the same intent via the actual overload that runs.

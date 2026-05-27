@@ -31,7 +31,7 @@ namespace Snap.One
                     return serializer.Serialize(result);
                 }
                 default:
-                    throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException($"Method '{method}' not found on service 'ICalculator'.");
+                    throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException("Method '" + method + "' not found on service 'ICalculator'.");
             }
         }
 
@@ -41,7 +41,7 @@ namespace Snap.One
         {
             if (!registry.TryGet("ICalculator", instanceId, out var __obj) || __obj is not global::Snap.One.ICalculator __inst)
             {
-                throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException($"Instance '{instanceId}' not found for service 'ICalculator'.");
+                throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException("Instance '" + instanceId + "' not found for service 'ICalculator'.");
             }
             switch (method)
             {
@@ -52,7 +52,7 @@ namespace Snap.One
                     return serializer.Serialize(result);
                 }
                 default:
-                    throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException($"Method '{method}' not found on service 'ICalculator'.");
+                    throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException("Method '" + method + "' not found on service 'ICalculator'.");
             }
         }
     }
