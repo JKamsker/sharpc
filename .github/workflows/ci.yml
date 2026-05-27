@@ -1,0 +1,104 @@
+name: ci
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  NUGET_XMLDOC_MODE: skip
+  # Tag pushes use the tag (vX.Y.Z -> X.Y.Z); every other run gets a CI prerelease
+  # version. The actual computation happens in the `version` step below.
+  CONFIGURATION: Release
+
+jobs:
+  build-test-pack:
+    name: Build, test, pack
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET SDKs
+        uses: actions/setup-dotnet@v4
+        with:
+          # Existing GameService sample targets net9; SourceGenerator.Tests targets net8.
+          # Listing both lets the build resolve both target frameworks.
+          dotnet-version: |
+            8.0.x
+            9.0.x
+
+      - name: Compute version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            ver="${GITHUB_REF#refs/tags/v}"
+          else
+            ver="1.0.0-ci.${GITHUB_RUN_NUMBER}"
+          fi
+          echo "version=${ver}" >> "$GITHUB_OUTPUT"
+          echo "Resolved package version: ${ver}"
+
+      - name: Restore
+        run: dotnet restore ShaRPC.sln
+
+      - name: Build
+        run: dotnet build ShaRPC.sln -c $CONFIGURATION --no-restore -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Test (SourceGenerator)
+        run: |
+          dotnet test tests/ShaRPC.SourceGenerator.Tests/ShaRPC.SourceGenerator.Tests.csproj \
+            -c $CONFIGURATION --no-build --logger "trx;LogFileName=sourcegen-tests.trx" \
+            --results-directory artifacts/test-results
+
+      - name: Test (Core integration)
+        # ShaRPC.Tests targets net9.0; with both SDKs installed `dotnet test` runs it on the
+        # net9 runtime that ships with the SDK.
+        run: |
+          dotnet test tests/ShaRPC.Tests/ShaRPC.Tests.csproj \
+            -c $CONFIGURATION --no-build --logger "trx;LogFileName=core-tests.trx" \
+            --results-directory artifacts/test-results
+
+      - name: Pack
+        run: |
+          mkdir -p artifacts/nupkg
+          for proj in \
+              src/ShaRPC.Core/ShaRPC.Core.csproj \
+              src/ShaRPC.SourceGenerator/ShaRPC.SourceGenerator.csproj \
+              src/ShaRPC.Serializers.MessagePack/ShaRPC.Serializers.MessagePack.csproj \
+              src/ShaRPC.Transports.Tcp/ShaRPC.Transports.Tcp.csproj; do
+            dotnet pack "$proj" -c $CONFIGURATION --no-build -o artifacts/nupkg \
+              -p:Version=${{ steps.version.outputs.version }}
+          done
+          ls -lah artifacts/nupkg
+
+      - name: Upload NuGet packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuget-packages
+          path: |
+            artifacts/nupkg/*.nupkg
+            artifacts/nupkg/*.snupkg
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: artifacts/test-results/**
+          if-no-files-found: ignore
+          retention-days: 7
