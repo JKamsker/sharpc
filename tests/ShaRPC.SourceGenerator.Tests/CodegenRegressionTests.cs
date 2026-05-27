@@ -298,6 +298,36 @@ public class CodegenRegressionTests
         dispatcher.Should().Contain("\"Method '\" + method + \"' not found on service 'Root{Svc'.\"");
     }
 
+    [Fact]
+    public void GlobalNamespaceSubServiceReturn_UsesGeneratedSubProxyTypeName()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading.Tasks;
+
+            [ShaRpcService]
+            public interface ISub
+            {
+                Task<int> CountAsync();
+            }
+
+            [ShaRpcService]
+            public interface IRoot
+            {
+                Task<ISub> GetSubAsync();
+            }
+            """;
+
+        var (final, runResult) = Run(source);
+        AssertCompiles(final);
+
+        var proxy = runResult.Results.Single().GeneratedSources
+            .Single(g => g.HintName == "IRoot.ShaRpcProxy.g.cs")
+            .SourceText.ToString();
+        proxy.Should().Contain("return new global::SubProxy(_client, __handle.InstanceId);");
+        proxy.Should().NotContain("global::ISubProxy");
+    }
+
     // Note: ZeroParamVoidMethod_UsesNoResponseOverload (string-Contains on "new object()")
     // was deleted in favour of ZeroParamVoid_AtRuntime_SelectsNoResponseOverload below,
     // which proves the same intent via the actual overload that runs.

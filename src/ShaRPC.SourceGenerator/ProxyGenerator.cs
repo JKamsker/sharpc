@@ -309,9 +309,17 @@ internal static class ProxyGenerator
     /// </summary>
     private static string BuildSubProxyTypeName(string qualifiedInterfaceName)
     {
+        const string globalPrefix = "global::";
+        var startsWithGlobal = qualifiedInterfaceName.StartsWith(globalPrefix, System.StringComparison.Ordinal);
+        var searchStart = startsWithGlobal ? globalPrefix.Length : 0;
         var lastDot = qualifiedInterfaceName.LastIndexOf('.');
-        var qualifierPart = lastDot >= 0 ? qualifiedInterfaceName.Substring(0, lastDot + 1) : string.Empty;
-        var simpleName = lastDot >= 0 ? qualifiedInterfaceName.Substring(lastDot + 1) : qualifiedInterfaceName;
+        var hasNamespace = lastDot >= searchStart;
+        var qualifierPart = hasNamespace
+            ? qualifiedInterfaceName.Substring(0, lastDot + 1)
+            : startsWithGlobal ? globalPrefix : string.Empty;
+        var simpleName = hasNamespace
+            ? qualifiedInterfaceName.Substring(lastDot + 1)
+            : startsWithGlobal ? qualifiedInterfaceName.Substring(globalPrefix.Length) : qualifiedInterfaceName;
         return qualifierPart + NamingHelpers.StripInterfacePrefix(simpleName) + "Proxy";
     }
 }
