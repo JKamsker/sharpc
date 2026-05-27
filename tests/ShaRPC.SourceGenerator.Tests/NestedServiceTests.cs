@@ -34,6 +34,7 @@ public class NestedServiceTests
             public interface ISubService
             {
                 Task<int> CountAsync();
+                Task<int> SumAsync(int a, int b);
             }
 
             [ShaRpcService]
@@ -145,20 +146,51 @@ public class NestedServiceTests
 
         // Register the sub-instance directly into a registry, then dispatch by id.
         var registry = new InstanceRegistry();
-        var subImpl = SubImplFactory.Create(iSub, fixedCount: 7);
-        var id = registry.Register("ISubService", subImpl);
+        var registeredSubImpl = SubImplFactory.Create(iSub, fixedCount: 7);
+        var constructorSubImpl = SubImplFactory.Create(iSub, fixedCount: 99);
+        var id = registry.Register("ISubService", registeredSubImpl);
 
         // Construct a dispatcher with a placeholder _service (any impl satisfies the
         // ctor — instance-scoped dispatch ignores it).
-        var dispatcher = (IServiceDispatcher)Activator.CreateInstance(dispatcherType, subImpl)!;
+        var dispatcher = (IServiceDispatcher)Activator.CreateInstance(dispatcherType, constructorSubImpl)!;
         var serializer = new JsonSerializerWrapper();
 
         var bytes = await dispatcher.DispatchOnInstanceAsync(id, "CountAsync", Array.Empty<byte>(), serializer, registry, CancellationToken.None);
-        serializer.Deserialize<int>(bytes).Should().Be(7);
+        serializer.Deserialize<int>(bytes).Should().Be(7,
+            "instance-scoped dispatch must invoke the registry-resolved service, not the constructor service");
 
         // An unknown instance id must fail loudly with the framework's NotFound exception.
         await Assert.ThrowsAsync<ShaRPC.Core.Exceptions.ShaRpcNotFoundException>(async () =>
             await dispatcher.DispatchOnInstanceAsync("does-not-exist", "CountAsync", Array.Empty<byte>(), serializer, registry, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task SubProxy_InstanceMethodWithPayload_UsesInvokeOnInstanceAsync()
+    {
+        var (asm, _) = Compile(Source);
+
+        var proxyType = asm.GetType("Nested.Demo.RootServiceProxy")!;
+
+        var fakeClient = new HandleClient
+        {
+            HandleResult = new ServiceHandle { ServiceName = "ISubService", InstanceId = "sum-123" },
+            CountResult = 42,
+        };
+
+        var rootProxy = Activator.CreateInstance(proxyType, fakeClient)!;
+        var getSubMethod = proxyType.GetMethod("GetSubAsync", new[] { typeof(string) })!;
+        var getTask = (Task)getSubMethod.Invoke(rootProxy, new object[] { "payload" })!;
+        await getTask;
+        var sub = getTask.GetType().GetProperty("Result")!.GetValue(getTask)!;
+
+        var sumMethod = sub.GetType().GetMethod("SumAsync", new[] { typeof(int), typeof(int) })!;
+        var sumTask = (Task<int>)sumMethod.Invoke(sub, new object[] { 2, 3 })!;
+        (await sumTask).Should().Be(42);
+
+        fakeClient.LastInstanceCallService.Should().Be("ISubService");
+        fakeClient.LastInstanceCallId.Should().Be("sum-123");
+        fakeClient.LastInstanceCallMethod.Should().Be("SumAsync");
+        fakeClient.LastInstanceRequest.Should().Be(new ValueTuple<int, int>(2, 3));
     }
 
     [Fact]
@@ -206,6 +238,7 @@ public class NestedServiceTests
         public string? LastInstanceCallService;
         public string? LastInstanceCallId;
         public string? LastInstanceCallMethod;
+        public object? LastInstanceRequest;
 
         public bool IsConnected => true;
         public Task ConnectAsync(CancellationToken ct = default) => Task.CompletedTask;
@@ -225,6 +258,7 @@ public class NestedServiceTests
         public Task<TR> InvokeOnInstanceAsync<TQ, TR>(string svc, string id, string method, TQ req, CancellationToken ct = default)
         {
             LastInstanceCallService = svc; LastInstanceCallId = id; LastInstanceCallMethod = method;
+            LastInstanceRequest = req;
             return Task.FromResult((TR)(object)CountResult);
         }
         public Task<TR> InvokeOnInstanceAsync<TR>(string svc, string id, string method, CancellationToken ct = default)
@@ -235,6 +269,7 @@ public class NestedServiceTests
         public Task InvokeOnInstanceAsync<TQ>(string svc, string id, string method, TQ req, CancellationToken ct = default)
         {
             LastInstanceCallService = svc; LastInstanceCallId = id; LastInstanceCallMethod = method;
+            LastInstanceRequest = req;
             return Task.CompletedTask;
         }
     }
@@ -260,6 +295,7 @@ public class NestedServiceTests
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
             if (targetMethod?.Name == "CountAsync") return Task.FromResult(Count);
+            if (targetMethod?.Name == "SumAsync") return Task.FromResult((int)args![0]! + (int)args[1]!);
             throw new InvalidOperationException("unexpected " + targetMethod?.Name);
         }
     }
