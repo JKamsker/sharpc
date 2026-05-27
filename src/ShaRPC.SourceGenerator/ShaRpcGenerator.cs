@@ -100,9 +100,8 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
             .Select(static (r, _) => r.Model!)
             .WithTrackingName("Services");
 
-        // Bundle each model with its async-sibling projection + collision diagnostics so
-        // every downstream step (per-service source output, SHARPC004 diagnostics) flows
-        // through one value-equatable record.
+        // Bundle each model with its async-sibling projection so every generated source
+        // output flows through one value-equatable record.
         var bundles = models
             .Select(static (m, ct) =>
             {
@@ -111,14 +110,25 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
                     return ServiceBundle.Empty(m);
                 }
 
-                var (siblings, collisions) = AsyncSiblingProjector.Compute(m, ct);
-                return new ServiceBundle(m, siblings, collisions);
+                var (siblings, _) = AsyncSiblingProjector.Compute(m, ct);
+                return new ServiceBundle(m, siblings);
             })
             .WithTrackingName("ServiceBundles");
 
         // SHARPC004 — async-sibling naming collision warnings.
-        var siblingCollisions = bundles
-            .SelectMany(static (b, _) => b.SiblingCollisions.Array)
+        var siblingCollisions = results
+            .Where(static r => r.Model is not null)
+            .SelectMany(static (r, ct) =>
+            {
+                var model = r.Model!;
+                if (!NamingHelpers.CanGenerateAsyncSiblingInterface(model.InterfaceName))
+                {
+                    return EquatableArray<MethodDiagnostic>.Empty.Array;
+                }
+
+                var (_, collisions) = AsyncSiblingProjector.Compute(model, r.MethodLocations, ct);
+                return collisions.Array;
+            })
             .WithTrackingName("SiblingCollisions");
 
         context.RegisterSourceOutput(siblingCollisions, static (spc, d) =>

@@ -79,20 +79,19 @@ internal sealed record ParameterModel(
 /// </summary>
 internal sealed record ServiceBundle(
     ServiceModel Model,
-    EquatableArray<AsyncSiblingMethod> SiblingMethods,
-    EquatableArray<MethodDiagnostic> SiblingCollisions)
+    EquatableArray<AsyncSiblingMethod> SiblingMethods)
 {
     public static ServiceBundle Empty(ServiceModel model) =>
         new(
             model,
-            EquatableArray<AsyncSiblingMethod>.Empty,
-            EquatableArray<MethodDiagnostic>.Empty);
+            EquatableArray<AsyncSiblingMethod>.Empty);
 }
 
 /// <summary>
 /// Shape of one method as it should appear on the auto-generated async sibling interface.
 /// </summary>
 internal sealed record AsyncSiblingMethod(
+    int SourceIndex,
     /// <summary>Method name on the sibling (e.g. <c>"Add"</c> → <c>"AddAsync"</c>).</summary>
     string Name,
     /// <summary>Original method this row was derived from — used by the proxy emitter to

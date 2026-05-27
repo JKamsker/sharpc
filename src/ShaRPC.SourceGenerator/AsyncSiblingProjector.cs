@@ -10,12 +10,19 @@ internal static class AsyncSiblingProjector
     public static (EquatableArray<AsyncSiblingMethod> Siblings, EquatableArray<MethodDiagnostic> Collisions)
         Compute(ServiceModel service, CancellationToken ct = default)
     {
+        return Compute(service, EquatableArray<DiagnosticLocation>.Empty, ct);
+    }
+
+    public static (EquatableArray<AsyncSiblingMethod> Siblings, EquatableArray<MethodDiagnostic> Collisions)
+        Compute(ServiceModel service, EquatableArray<DiagnosticLocation> methodLocations, CancellationToken ct)
+    {
         var candidates = new List<AsyncSiblingMethod>();
         var collisions = new List<MethodDiagnostic>();
 
-        foreach (var m in service.Methods.Array)
+        for (var i = 0; i < service.Methods.Count; i++)
         {
             ct.ThrowIfCancellationRequested();
+            var m = service.Methods[i];
             if (m.UnsupportedReason is not null)
             {
                 continue;
@@ -37,7 +44,13 @@ internal static class AsyncSiblingProjector
             var signatureMatches = ParametersEqual(m.Parameters, siblingParameters);
             var requiresExtra = !(siblingNameMatches && signatureMatches && NamingHelpers.IsAsync(m.ReturnKind));
 
-            candidates.Add(new AsyncSiblingMethod(siblingName, m, siblingReturnKind, siblingParameters, requiresExtra));
+            candidates.Add(new AsyncSiblingMethod(
+                i,
+                siblingName,
+                m,
+                siblingReturnKind,
+                siblingParameters,
+                requiresExtra));
         }
 
         var groups = new Dictionary<string, List<AsyncSiblingMethod>>(StringComparer.Ordinal);
@@ -88,11 +101,24 @@ internal static class AsyncSiblingProjector
                 collisions.Add(new MethodDiagnostic(
                     service.InterfaceName,
                     row.Source.Name,
-                    $"the async-sibling projection '{row.Name}' would collide with '{other.Source.Name}'. Rename one of the methods or drop the trailing 'Async' on the sync method."));
+                    $"the async-sibling projection '{row.Name}' would collide with '{other.Source.Name}'. Rename one of the methods or drop the trailing 'Async' on the sync method.",
+                    GetLocation(row.SourceIndex, methodLocations)));
             }
         }
 
         return (rows.ToEquatableArray(), collisions.ToEquatableArray());
+    }
+
+    private static DiagnosticLocation GetLocation(
+        int sourceIndex,
+        EquatableArray<DiagnosticLocation> methodLocations)
+    {
+        if (sourceIndex < 0 || sourceIndex >= methodLocations.Count)
+        {
+            return default;
+        }
+
+        return methodLocations[sourceIndex];
     }
 
     private static string SignatureKey(AsyncSiblingMethod method) =>

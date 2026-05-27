@@ -161,6 +161,8 @@ public class AsyncSiblingTests
 
         diags.Should().Contain(d => d.Id == "SHARPC004",
             "the sync 'Add' would project to 'AddAsync', which is already declared");
+        diags.Where(d => d.Id == "SHARPC004")
+            .Should().OnlyContain(d => d.Location != Location.None);
     }
 
     /// <summary>
