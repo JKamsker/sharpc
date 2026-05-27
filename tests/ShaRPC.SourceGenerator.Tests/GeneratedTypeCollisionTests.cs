@@ -96,6 +96,40 @@ public class GeneratedTypeCollisionTests
             .Should().NotContain(g => g.HintName.Contains("IFoo."));
     }
 
+    [Fact]
+    public void ServicesWithSameGeneratedTypeNames_ProduceSHARPC003_AndAreSkipped()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+
+            namespace Regress.GeneratedTypeCollision
+            {
+                [ShaRpcService]
+                public interface IFoo
+                {
+                    int Bar();
+                }
+
+                [ShaRpcService]
+                public interface Foo
+                {
+                    int Baz();
+                }
+            }
+            """;
+
+        var runResult = Run(source);
+
+        runResult.Diagnostics.Where(d => d.Id == "SHARPC003")
+            .Should().HaveCount(2)
+            .And.OnlyContain(d => d.GetMessage().Contains(
+                "generated proxy and dispatcher type names 'FooProxy' and 'FooDispatcher' would collide"));
+        runResult.Results.Single().GeneratedSources
+            .Should().NotContain(g =>
+                g.HintName.Contains("IFoo.") ||
+                g.HintName.Contains("Foo."));
+    }
+
     private static GeneratorDriverRunResult Run(string source)
     {
         var compilation = GeneratorTestHelper.CreateCompilation(source);

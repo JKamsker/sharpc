@@ -28,6 +28,7 @@ internal static class ServiceModelFactory
                 Error: new GeneratorError(name, ex.ToString()),
                 MethodDiagnostics: EquatableArray<MethodDiagnostic>.Empty,
                 MethodLocations: EquatableArray<DiagnosticLocation>.Empty,
+                ServiceLocation: default,
                 ServiceDiagnostic: null);
         }
     }
@@ -131,6 +132,7 @@ internal static class ServiceModelFactory
             Error: null,
             MethodDiagnostics: methodDiagnostics.ToEquatableArray(),
             MethodLocations: methodLocations.ToEquatableArray(),
+            ServiceLocation: serviceLocation,
             ServiceDiagnostic: null);
     }
 
@@ -143,6 +145,7 @@ internal static class ServiceModelFactory
             Error: null,
             MethodDiagnostics: EquatableArray<MethodDiagnostic>.Empty,
             MethodLocations: EquatableArray<DiagnosticLocation>.Empty,
+            ServiceLocation: location,
             ServiceDiagnostic: new ServiceDiagnostic(displayName, reason, location));
 
     private static string? GetConfiguredServiceName(GeneratorAttributeSyntaxContext context)

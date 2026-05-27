@@ -65,6 +65,17 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
             .Combine(existingTypes)
             .Select(static (pair, ct) =>
                 GeneratedTypeCollisionValidator.Apply(pair.Left, pair.Right, ct))
+            .WithTrackingName("ExistingTypeValidatedServiceResults");
+
+        var generatedServiceNames = results
+            .Collect()
+            .Select(static (arr, ct) => GeneratedServiceNameIndex.Create(arr, ct))
+            .WithTrackingName("GeneratedServiceNames");
+
+        results = results
+            .Combine(generatedServiceNames)
+            .Select(static (pair, ct) =>
+                GeneratedServiceCollisionValidator.Apply(pair.Left, pair.Right, ct))
             .WithTrackingName("ServiceResults");
 
         var errors = results

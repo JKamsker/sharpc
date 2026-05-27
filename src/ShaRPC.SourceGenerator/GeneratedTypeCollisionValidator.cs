@@ -68,6 +68,7 @@ internal static class GeneratedTypeCollisionValidator
             Error: null,
             MethodDiagnostics: EquatableArray<MethodDiagnostic>.Empty,
             MethodLocations: EquatableArray<DiagnosticLocation>.Empty,
+            ServiceLocation: location,
             ServiceDiagnostic: new ServiceDiagnostic(GetDisplayName(model), reason, location));
 
     private static string GetDisplayName(ServiceModel model) =>

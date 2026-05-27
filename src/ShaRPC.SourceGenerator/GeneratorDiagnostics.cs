@@ -8,6 +8,7 @@ internal readonly record struct ServiceResult(
     GeneratorError? Error,
     EquatableArray<MethodDiagnostic> MethodDiagnostics,
     EquatableArray<DiagnosticLocation> MethodLocations,
+    DiagnosticLocation ServiceLocation,
     ServiceDiagnostic? ServiceDiagnostic);
 
 internal readonly record struct GeneratorError(string Where, string Message);
