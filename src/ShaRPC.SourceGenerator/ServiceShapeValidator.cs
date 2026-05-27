@@ -1,14 +1,19 @@
 using System.Collections.Generic;
+using System.Threading;
 using Microsoft.CodeAnalysis;
 
 namespace ShaRPC.SourceGenerator;
 
 internal static class ServiceShapeValidator
 {
-    public static UnsupportedMemberDiagnostic? GetUnsupportedMemberDiagnostic(INamedTypeSymbol interfaceSymbol)
+    public static UnsupportedMemberDiagnostic? GetUnsupportedMemberDiagnostic(
+        INamedTypeSymbol interfaceSymbol,
+        CancellationToken ct)
     {
         foreach (var member in EnumerateInterfaceMembers(interfaceSymbol))
         {
+            ct.ThrowIfCancellationRequested();
+
             if (member is IPropertySymbol property)
             {
                 return CreateDiagnostic(

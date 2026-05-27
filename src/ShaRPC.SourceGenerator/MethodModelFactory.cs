@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Threading;
 using Microsoft.CodeAnalysis;
 
 namespace ShaRPC.SourceGenerator;
@@ -17,10 +18,13 @@ internal static class MethodModelFactory
         IMethodSymbol methodSymbol,
         INamedTypeSymbol? cancellationTokenSymbol,
         List<MethodDiagnostic> methodDiagnostics,
+        CancellationToken ct,
         out DiagnosticLocation methodLocation)
     {
+        ct.ThrowIfCancellationRequested();
+
         var returnType = methodSymbol.ReturnType;
-        var returnKind = ReturnTypeClassifier.Classify(returnType, out var unwrappedReturnType, out var subService);
+        var returnKind = ReturnTypeClassifier.Classify(returnType, ct, out var unwrappedReturnType, out var subService);
         var typeParameterList = MethodSignatureFormatter.GetTypeParameterList(methodSymbol);
         var constraintClauses = MethodSignatureFormatter.GetConstraintClauses(methodSymbol);
         string? unsupportedReason = null;
@@ -30,12 +34,12 @@ internal static class MethodModelFactory
         SetUnsupported(
             ref unsupportedReason,
             ref unsupportedLocation,
-            ReturnTypeClassifier.GetUnsupportedServiceReturnReason(returnType),
+            ReturnTypeClassifier.GetUnsupportedServiceReturnReason(returnType, ct),
             methodLocation);
         SetUnsupported(
             ref unsupportedReason,
             ref unsupportedLocation,
-            RpcTypeValidator.GetUnsupportedTypeReason(returnType, "return type"),
+            RpcTypeValidator.GetUnsupportedTypeReason(returnType, "return type", ct),
             methodLocation);
 
         var parameters = new List<ParameterModel>();
@@ -61,6 +65,8 @@ internal static class MethodModelFactory
 
         foreach (var param in methodSymbol.Parameters)
         {
+            ct.ThrowIfCancellationRequested();
+
             var parameterLocation = DiagnosticLocationFactory.FromSymbol(param);
             var isCancellationToken = cancellationTokenSymbol is not null &&
                 SymbolEqualityComparer.Default.Equals(param.Type, cancellationTokenSymbol);
@@ -91,7 +97,7 @@ internal static class MethodModelFactory
             SetUnsupported(
                 ref unsupportedReason,
                 ref unsupportedLocation,
-                RpcTypeValidator.GetUnsupportedTypeReason(param.Type, $"parameter '{param.Name}'"),
+                RpcTypeValidator.GetUnsupportedTypeReason(param.Type, $"parameter '{param.Name}'", ct),
                 parameterLocation);
 
             parameters.Add(new ParameterModel(

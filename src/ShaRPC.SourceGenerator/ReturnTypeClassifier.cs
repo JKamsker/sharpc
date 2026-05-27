@@ -1,3 +1,4 @@
+using System.Threading;
 using Microsoft.CodeAnalysis;
 
 namespace ShaRPC.SourceGenerator;
@@ -12,15 +13,17 @@ internal static class ReturnTypeClassifier
             SymbolDisplayFormat.FullyQualifiedFormat.MiscellaneousOptions |
             SymbolDisplayMiscellaneousOptions.EscapeKeywordIdentifiers);
 
-    public static string? GetUnsupportedServiceReturnReason(ITypeSymbol returnType)
+    public static string? GetUnsupportedServiceReturnReason(ITypeSymbol returnType, CancellationToken ct)
     {
-        if (IsShaRpcServiceInterface(returnType))
+        ct.ThrowIfCancellationRequested();
+
+        if (IsShaRpcServiceInterface(returnType, ct))
         {
             return "synchronous sub-service returns are not supported; return Task<TService> or ValueTask<TService>";
         }
 
         if (!TryGetAsyncPayloadType(returnType, out var payloadType) ||
-            !IsShaRpcServiceInterface(payloadType))
+            !IsShaRpcServiceInterface(payloadType, ct))
         {
             return null;
         }
@@ -43,9 +46,12 @@ internal static class ReturnTypeClassifier
 
     public static MethodReturnKind Classify(
         ITypeSymbol returnType,
+        CancellationToken ct,
         out string? unwrappedReturnType,
         out SubServiceInfo? subService)
     {
+        ct.ThrowIfCancellationRequested();
+
         subService = null;
 
         if (returnType is INamedTypeSymbol named && named.IsGenericType)
@@ -57,7 +63,7 @@ internal static class ReturnTypeClassifier
                 {
                     var arg = named.TypeArguments[0];
                     unwrappedReturnType = arg.ToDisplayString(s_qualifiedFormat);
-                    if (TryGetSubServiceInfo(arg, out var sub))
+                    if (TryGetSubServiceInfo(arg, ct, out var sub))
                     {
                         subService = sub;
                         return MethodReturnKind.TaskOfSubService;
@@ -69,7 +75,7 @@ internal static class ReturnTypeClassifier
                 {
                     var arg = named.TypeArguments[0];
                     unwrappedReturnType = arg.ToDisplayString(s_qualifiedFormat);
-                    if (TryGetSubServiceInfo(arg, out var sub))
+                    if (TryGetSubServiceInfo(arg, ct, out var sub))
                     {
                         subService = sub;
                         return MethodReturnKind.ValueTaskOfSubService;
@@ -124,8 +130,10 @@ internal static class ReturnTypeClassifier
         return true;
     }
 
-    private static bool IsShaRpcServiceInterface(ITypeSymbol type)
+    private static bool IsShaRpcServiceInterface(ITypeSymbol type, CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
+
         if (type is not INamedTypeSymbol named || named.TypeKind != TypeKind.Interface)
         {
             return false;
@@ -133,6 +141,8 @@ internal static class ReturnTypeClassifier
 
         foreach (var attr in named.GetAttributes())
         {
+            ct.ThrowIfCancellationRequested();
+
             if (attr.AttributeClass?.ToDisplayString() == ShaRpcServiceAttributeName)
             {
                 return true;
@@ -142,8 +152,10 @@ internal static class ReturnTypeClassifier
         return false;
     }
 
-    private static bool TryGetSubServiceInfo(ITypeSymbol type, out SubServiceInfo info)
+    private static bool TryGetSubServiceInfo(ITypeSymbol type, CancellationToken ct, out SubServiceInfo info)
     {
+        ct.ThrowIfCancellationRequested();
+
         info = null!;
         if (type is not INamedTypeSymbol named || named.TypeKind != TypeKind.Interface)
         {
@@ -158,6 +170,8 @@ internal static class ReturnTypeClassifier
         AttributeData? serviceAttr = null;
         foreach (var attr in named.GetAttributes())
         {
+            ct.ThrowIfCancellationRequested();
+
             if (attr.AttributeClass?.ToDisplayString() == ShaRpcServiceAttributeName)
             {
                 serviceAttr = attr;
@@ -169,6 +183,8 @@ internal static class ReturnTypeClassifier
         string serviceName = named.Name;
         foreach (var arg in serviceAttr.NamedArguments)
         {
+            ct.ThrowIfCancellationRequested();
+
             if (arg.Key == "Name" && arg.Value.Value is string customName)
             {
                 serviceName = customName;

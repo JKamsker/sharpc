@@ -66,7 +66,7 @@ internal static class ServiceModelFactory
                 serviceLocation);
         }
 
-        var unsupportedMemberDiagnostic = ServiceShapeValidator.GetUnsupportedMemberDiagnostic(interfaceSymbol);
+        var unsupportedMemberDiagnostic = ServiceShapeValidator.GetUnsupportedMemberDiagnostic(interfaceSymbol, ct);
         if (unsupportedMemberDiagnostic is not null)
         {
             return RejectedService(
@@ -117,6 +117,7 @@ internal static class ServiceModelFactory
                 methodSymbol,
                 cancellationTokenSymbol,
                 methodDiagnostics,
+                ct,
                 out var methodLocation);
 
             methods.Add(method);
