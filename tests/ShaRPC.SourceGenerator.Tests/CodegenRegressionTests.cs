@@ -200,6 +200,44 @@ public class CodegenRegressionTests
     }
 
     [Fact]
+    public void RefLikeParameterType_ProducesSHARPC002_AndCompilingProxyStub()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System;
+
+            namespace Regress.RefLikePayload
+            {
+                [ShaRpcService]
+                public interface ISpanSvc
+                {
+                    int Count(ReadOnlySpan<byte> bytes);
+                }
+            }
+            """;
+
+        var (final, runResult) = Run(source);
+        AssertCompiles(final);
+
+        runResult.Diagnostics.Should().Contain(d => d.Id == "SHARPC002" &&
+            d.GetMessage().Contains("parameter 'bytes' uses a ref-like type"));
+
+        var generated = runResult.Results.Single().GeneratedSources;
+        var proxy = generated
+            .Single(g => g.HintName == GeneratorTestHelper.HintName(
+                "Regress.RefLikePayload", "ISpanSvc", GeneratorTestHelper.GeneratedKind.Proxy))
+            .SourceText.ToString();
+        proxy.Should().Contain("Count(global::System.ReadOnlySpan<byte> bytes)");
+        proxy.Should().Contain("throw new global::System.NotSupportedException");
+
+        var dispatcher = generated
+            .Single(g => g.HintName == GeneratorTestHelper.HintName(
+                "Regress.RefLikePayload", "ISpanSvc", GeneratorTestHelper.GeneratedKind.Dispatcher))
+            .SourceText.ToString();
+        dispatcher.Should().NotContain("case \"Count\":");
+    }
+
+    [Fact]
     public void GenericServiceInterface_ProducesSHARPC003_AndIsSkipped()
     {
         // Regression for C2: generic service interfaces are unsupported. The generator

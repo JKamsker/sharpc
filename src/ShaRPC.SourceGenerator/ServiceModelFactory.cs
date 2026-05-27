@@ -191,6 +191,7 @@ internal static class ServiceModelFactory
         var typeParameterList = MethodSignatureFormatter.GetTypeParameterList(methodSymbol);
         var constraintClauses = MethodSignatureFormatter.GetConstraintClauses(methodSymbol);
         string? unsupportedReason = ReturnTypeClassifier.GetUnsupportedServiceReturnReason(returnType);
+        unsupportedReason ??= RpcTypeValidator.GetUnsupportedTypeReason(returnType, "return type");
         methodLocation = GetSymbolLocation(methodSymbol);
 
         var parameters = new List<ParameterModel>();
@@ -222,6 +223,10 @@ internal static class ServiceModelFactory
                 unsupportedReason ??=
                     $"parameter '{param.Name}' uses an unsupported pass-by-reference kind '{param.RefKind.ToString().ToLowerInvariant()}'";
             }
+
+            unsupportedReason ??= RpcTypeValidator.GetUnsupportedTypeReason(
+                param.Type,
+                $"parameter '{param.Name}'");
 
             parameters.Add(new ParameterModel(
                 IdentifierHelpers.EscapeIdentifier(param.Name),
