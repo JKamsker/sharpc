@@ -328,6 +328,129 @@ public class CodegenRegressionTests
         proxy.Should().NotContain("global::ISubProxy");
     }
 
+    [Fact]
+    public void SynchronousSubServiceReturn_ProducesSHARPC002_AndDoesNotSerializeLiveInstance()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading.Tasks;
+
+            namespace Regress.SyncSubService
+            {
+                [ShaRpcService]
+                public interface ISub
+                {
+                    Task<int> CountAsync();
+                }
+
+                [ShaRpcService]
+                public interface IRoot
+                {
+                    ISub GetSub();
+                }
+            }
+            """;
+
+        var (final, runResult) = Run(source);
+        AssertCompiles(final);
+
+        runResult.Diagnostics.Should().Contain(d => d.Id == "SHARPC002" &&
+            d.GetMessage().Contains("synchronous sub-service returns are not supported"));
+
+        var generated = runResult.Results.Single().GeneratedSources;
+        var proxy = generated
+            .Single(g => g.HintName == GeneratorTestHelper.HintName(
+                "Regress.SyncSubService", "IRoot", GeneratorTestHelper.GeneratedKind.Proxy))
+            .SourceText.ToString();
+        proxy.Should().Contain("throw new global::System.NotSupportedException");
+
+        var dispatcher = generated
+            .Single(g => g.HintName == GeneratorTestHelper.HintName(
+                "Regress.SyncSubService", "IRoot", GeneratorTestHelper.GeneratedKind.Dispatcher))
+            .SourceText.ToString();
+        dispatcher.Should().NotContain("case \"GetSub\":");
+        dispatcher.Should().NotContain("serializer.Serialize(result)");
+    }
+
+    [Fact]
+    public void GenericSubServiceReturn_ProducesSHARPC002_AndDoesNotBuildInvalidProxyType()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading.Tasks;
+
+            namespace Regress.GenericSubService
+            {
+                [ShaRpcService]
+                public interface IChild<T>
+                {
+                    Task<int> CountAsync();
+                }
+
+                [ShaRpcService]
+                public interface IRoot
+                {
+                    Task<IChild<int>> GetChildAsync();
+                }
+            }
+            """;
+
+        var (final, runResult) = Run(source);
+        AssertCompiles(final);
+
+        runResult.Diagnostics.Should().Contain(d => d.Id == "SHARPC003",
+            "the generic sub-service interface itself is rejected");
+        runResult.Diagnostics.Should().Contain(d => d.Id == "SHARPC002" &&
+            d.GetMessage().Contains("generic sub-service return types are not supported"));
+
+        var proxy = runResult.Results.Single().GeneratedSources
+            .Single(g => g.HintName == GeneratorTestHelper.HintName(
+                "Regress.GenericSubService", "IRoot", GeneratorTestHelper.GeneratedKind.Proxy))
+            .SourceText.ToString();
+        proxy.Should().NotContain("Child<int>Proxy");
+    }
+
+    [Fact]
+    public void NestedSubServiceReturn_ProducesSHARPC002_AndDoesNotBuildInvalidProxyType()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading.Tasks;
+
+            namespace Regress.NestedSubService
+            {
+                public class Outer
+                {
+                    [ShaRpcService]
+                    public interface IInner
+                    {
+                        Task<int> CountAsync();
+                    }
+                }
+
+                [ShaRpcService]
+                public interface IRoot
+                {
+                    Task<Outer.IInner> GetInnerAsync();
+                }
+            }
+            """;
+
+        var (final, runResult) = Run(source);
+        AssertCompiles(final);
+
+        runResult.Diagnostics.Should().Contain(d => d.Id == "SHARPC003",
+            "the nested sub-service interface itself is rejected");
+        runResult.Diagnostics.Should().Contain(d => d.Id == "SHARPC002" &&
+            d.GetMessage().Contains("nested sub-service return types are not supported"));
+
+        var proxy = runResult.Results.Single().GeneratedSources
+            .Single(g => g.HintName == GeneratorTestHelper.HintName(
+                "Regress.NestedSubService", "IRoot", GeneratorTestHelper.GeneratedKind.Proxy))
+            .SourceText.ToString();
+        proxy.Should().NotContain("InnerProxy");
+    }
+
     // Note: ZeroParamVoidMethod_UsesNoResponseOverload (string-Contains on "new object()")
     // was deleted in favour of ZeroParamVoid_AtRuntime_SelectsNoResponseOverload below,
     // which proves the same intent via the actual overload that runs.

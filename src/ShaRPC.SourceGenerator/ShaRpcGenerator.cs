@@ -405,14 +405,14 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
             var returnKind = ClassifyReturnType(returnType, out var unwrappedReturnType, out var subService);
             var typeParameterList = GetTypeParameterList(methodSymbol);
             var constraintClauses = GetConstraintClauses(methodSymbol);
+            string? unsupportedReason = GetUnsupportedServiceReturnReason(returnType);
 
             var parameters = new List<ParameterModel>();
             var hasCancellationToken = false;
             var cancellationTokenCount = 0;
-            string? unsupportedReason = null;
             if (methodSymbol.IsGenericMethod)
             {
-                unsupportedReason = "generic service methods are not supported; expose a non-generic RPC method instead";
+                unsupportedReason ??= "generic service methods are not supported; expose a non-generic RPC method instead";
             }
 
             foreach (var param in methodSymbol.Parameters)
@@ -544,6 +544,72 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
         return string.Concat(clauses);
     }
 
+    private static string? GetUnsupportedServiceReturnReason(ITypeSymbol returnType)
+    {
+        if (IsShaRpcServiceInterface(returnType))
+        {
+            return "synchronous sub-service returns are not supported; return Task<TService> or ValueTask<TService>";
+        }
+
+        if (!TryGetAsyncPayloadType(returnType, out var payloadType) ||
+            !IsShaRpcServiceInterface(payloadType))
+        {
+            return null;
+        }
+
+        if (payloadType is INamedTypeSymbol named)
+        {
+            if (named.IsGenericType)
+            {
+                return "generic sub-service return types are not supported";
+            }
+
+            if (named.ContainingType is not null)
+            {
+                return "nested sub-service return types are not supported";
+            }
+        }
+
+        return null;
+    }
+
+    private static bool TryGetAsyncPayloadType(ITypeSymbol type, out ITypeSymbol payloadType)
+    {
+        payloadType = null!;
+        if (type is not INamedTypeSymbol named || !named.IsGenericType)
+        {
+            return false;
+        }
+
+        var nsName = named.ContainingNamespace?.ToDisplayString();
+        if (nsName != SystemThreadingTasks ||
+            (named.Name != "Task" && named.Name != "ValueTask"))
+        {
+            return false;
+        }
+
+        payloadType = named.TypeArguments[0];
+        return true;
+    }
+
+    private static bool IsShaRpcServiceInterface(ITypeSymbol type)
+    {
+        if (type is not INamedTypeSymbol named || named.TypeKind != TypeKind.Interface)
+        {
+            return false;
+        }
+
+        foreach (var attr in named.GetAttributes())
+        {
+            if (attr.AttributeClass?.ToDisplayString() == ShaRpcServiceAttributeName)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static void MarkDuplicateWireNames(
         string interfaceName,
         List<MethodModel> methods,
@@ -654,6 +720,11 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
     {
         info = null!;
         if (type is not INamedTypeSymbol named || named.TypeKind != TypeKind.Interface)
+        {
+            return false;
+        }
+
+        if (named.IsGenericType || named.ContainingType is not null)
         {
             return false;
         }
