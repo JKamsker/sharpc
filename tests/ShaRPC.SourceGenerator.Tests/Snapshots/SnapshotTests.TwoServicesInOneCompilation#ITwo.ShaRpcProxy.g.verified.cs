@@ -21,9 +21,9 @@ namespace Snap.Two
             _client = client ?? throw new ArgumentNullException(nameof(client));
         }
 
-        public async Task<string> BAsync(CancellationToken ct = default)
+        public async Task<string> BAsync()
         {
-            return await _client.InvokeAsync<object, string>("ITwo", "BAsync", new object(), ct);
+            return await _client.InvokeAsync<string>("ITwo", "BAsync", default);
         }
     }
 }

@@ -192,44 +192,39 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
             }
 
             var returnType = methodSymbol.ReturnType;
-            var returnsTask = returnType.Name == "Task" ||
-                (returnType is INamedTypeSymbol namedReturn && namedReturn.ConstructedFrom?.Name == "Task");
 
-            string returnTypeStr;
+            MethodReturnKind returnKind;
             string? unwrappedReturnType;
-            bool returnsVoid;
 
             if (returnType is INamedTypeSymbol namedType && namedType.IsGenericType && namedType.Name == "Task")
             {
+                returnKind = MethodReturnKind.TaskOf;
                 unwrappedReturnType = namedType.TypeArguments[0].ToDisplayString();
-                returnTypeStr = $"Task<{unwrappedReturnType}>";
-                returnsVoid = false;
             }
-            else if (returnType.Name == "Task")
+            else if (returnType.Name == "Task" && returnType.ContainingNamespace?.ToDisplayString() == "System.Threading.Tasks")
             {
-                returnTypeStr = "Task";
+                returnKind = MethodReturnKind.Task;
                 unwrappedReturnType = null;
-                returnsVoid = true;
             }
             else if (returnType.SpecialType == SpecialType.System_Void)
             {
-                returnTypeStr = "Task";
+                returnKind = MethodReturnKind.Void;
                 unwrappedReturnType = null;
-                returnsVoid = true;
             }
             else
             {
+                returnKind = MethodReturnKind.Sync;
                 unwrappedReturnType = returnType.ToDisplayString();
-                returnTypeStr = $"Task<{unwrappedReturnType}>";
-                returnsVoid = false;
             }
 
             var parameters = new List<ParameterModel>();
+            var hasCancellationToken = false;
             foreach (var param in methodSymbol.Parameters)
             {
                 var paramTypeStr = param.Type.ToDisplayString();
                 if (paramTypeStr == CancellationTokenFullName)
                 {
+                    hasCancellationToken = true;
                     continue;
                 }
 
@@ -239,10 +234,9 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
             methods.Add(new MethodModel(
                 Name: methodSymbol.Name,
                 RpcName: customMethodName ?? methodSymbol.Name,
-                ReturnType: returnTypeStr,
+                ReturnKind: returnKind,
                 UnwrappedReturnType: unwrappedReturnType,
-                ReturnsTask: returnsTask,
-                ReturnsVoid: returnsVoid,
+                HasCancellationToken: hasCancellationToken,
                 Parameters: parameters.ToEquatableArray()));
         }
 
@@ -273,9 +267,7 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
 
         foreach (var service in services)
         {
-            var serviceName = service.InterfaceName.StartsWith("I", StringComparison.Ordinal)
-                ? service.InterfaceName.Substring(1)
-                : service.InterfaceName;
+            var serviceName = NamingHelpers.StripInterfacePrefix(service.InterfaceName);
             var proxyName = serviceName + "Proxy";
             var dispatcherName = serviceName + "Dispatcher";
             var fullInterfaceName = string.IsNullOrEmpty(service.Namespace)

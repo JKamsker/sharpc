@@ -25,14 +25,16 @@ namespace Snap.One
 
         public string ServiceName => "ICalculator";
 
+#pragma warning disable CS1998
         public async Task<byte[]> DispatchAsync(string method, byte[] payload, ISerializer serializer, CancellationToken ct = default)
+#pragma warning restore CS1998
         {
             switch (method)
             {
                 case "AddAsync":
                 {
                     var args = serializer.Deserialize<(int, int)>(payload);
-                    var result = await _service.AddAsync(args.Item1, args.Item2, ct);
+                    var result = await _service.AddAsync(args.Item1, args.Item2);
                     return serializer.Serialize(result);
                 }
                 default:

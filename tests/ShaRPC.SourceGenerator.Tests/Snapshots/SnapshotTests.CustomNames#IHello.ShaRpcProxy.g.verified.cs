@@ -21,9 +21,9 @@ namespace Snap.Renamed
             _client = client ?? throw new ArgumentNullException(nameof(client));
         }
 
-        public async Task<string> HelloAsync(string who, CancellationToken ct = default)
+        public async Task<string> HelloAsync(string who)
         {
-            return await _client.InvokeAsync<string, string>("Greeter", "Greet", who, ct);
+            return await _client.InvokeAsync<string, string>("Greeter", "Greet", who, default);
         }
     }
 }

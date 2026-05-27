@@ -21,9 +21,9 @@ namespace Snap.Two
             _client = client ?? throw new ArgumentNullException(nameof(client));
         }
 
-        public async Task<int> AAsync(int x, CancellationToken ct = default)
+        public async Task<int> AAsync(int x)
         {
-            return await _client.InvokeAsync<int, int>("IOne", "AAsync", x, ct);
+            return await _client.InvokeAsync<int, int>("IOne", "AAsync", x, default);
         }
     }
 }

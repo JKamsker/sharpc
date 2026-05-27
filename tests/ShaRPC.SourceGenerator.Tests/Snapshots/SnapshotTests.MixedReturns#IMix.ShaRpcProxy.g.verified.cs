@@ -21,24 +21,24 @@ namespace Snap.Mixed
             _client = client ?? throw new ArgumentNullException(nameof(client));
         }
 
-        public async Task<string> GetNameAsync(CancellationToken ct = default)
+        public async Task<string> GetNameAsync()
         {
-            return await _client.InvokeAsync<object, string>("IMix", "GetNameAsync", new object(), ct);
+            return await _client.InvokeAsync<string>("IMix", "GetNameAsync", default);
         }
 
-        public async Task SaveAsync(string value, CancellationToken ct = default)
+        public async Task SaveAsync(string value)
         {
-            await _client.InvokeAsync("IMix", "SaveAsync", value, ct);
+            await _client.InvokeAsync<string>("IMix", "SaveAsync", value, default);
         }
 
-        public async Task<int> SyncAdd(int a, int b, CancellationToken ct = default)
+        public int SyncAdd(int a, int b)
         {
-            return await _client.InvokeAsync<(int, int), int>("IMix", "SyncAdd", (a, b), ct);
+            return _client.InvokeAsync<(int, int), int>("IMix", "SyncAdd", (a, b), default).GetAwaiter().GetResult();
         }
 
-        public async Task SyncPing(CancellationToken ct = default)
+        public void SyncPing()
         {
-            await _client.InvokeAsync<object>("IMix", "SyncPing", new object(), ct);
+            _client.InvokeAsync<object>("IMix", "SyncPing", default).GetAwaiter().GetResult();
         }
     }
 }

@@ -57,6 +57,8 @@ public class BehavioralTests
         var interfaceType = assembly.GetType("Behavior.Demo.IMath")!;
         var addMethod = interfaceType.GetMethod("AddAsync")!;
 
+        // IMath.AddAsync declares (int, int, CancellationToken ct = default) — the proxy
+        // now mirrors that signature exactly, so we pass the same three arguments.
         var resultTask = (Task)addMethod.Invoke(proxy, new object[] { 2, 3, CancellationToken.None })!;
         await resultTask;
         var result = (int)resultTask.GetType().GetProperty("Result")!.GetValue(resultTask)!;

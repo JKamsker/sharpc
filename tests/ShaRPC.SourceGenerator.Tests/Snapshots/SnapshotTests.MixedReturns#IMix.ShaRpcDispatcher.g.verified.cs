@@ -25,30 +25,32 @@ namespace Snap.Mixed
 
         public string ServiceName => "IMix";
 
+#pragma warning disable CS1998
         public async Task<byte[]> DispatchAsync(string method, byte[] payload, ISerializer serializer, CancellationToken ct = default)
+#pragma warning restore CS1998
         {
             switch (method)
             {
                 case "GetNameAsync":
                 {
-                    var result = await _service.GetNameAsync(ct);
+                    var result = await _service.GetNameAsync();
                     return serializer.Serialize(result);
                 }
                 case "SaveAsync":
                 {
                     var arg = serializer.Deserialize<string>(payload);
-                    await _service.SaveAsync(arg, ct);
+                    await _service.SaveAsync(arg);
                     return Array.Empty<byte>();
                 }
                 case "SyncAdd":
                 {
                     var args = serializer.Deserialize<(int, int)>(payload);
-                    var result = await _service.SyncAdd(args.Item1, args.Item2, ct);
+                    var result = _service.SyncAdd(args.Item1, args.Item2);
                     return serializer.Serialize(result);
                 }
                 case "SyncPing":
                 {
-                    await _service.SyncPing(ct);
+                    _service.SyncPing();
                     return Array.Empty<byte>();
                 }
                 default:

@@ -25,13 +25,15 @@ namespace Snap.Two
 
         public string ServiceName => "ITwo";
 
+#pragma warning disable CS1998
         public async Task<byte[]> DispatchAsync(string method, byte[] payload, ISerializer serializer, CancellationToken ct = default)
+#pragma warning restore CS1998
         {
             switch (method)
             {
                 case "BAsync":
                 {
-                    var result = await _service.BAsync(ct);
+                    var result = await _service.BAsync();
                     return serializer.Serialize(result);
                 }
                 default:

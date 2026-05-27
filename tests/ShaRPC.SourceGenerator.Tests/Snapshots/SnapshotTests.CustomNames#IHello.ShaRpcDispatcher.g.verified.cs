@@ -25,14 +25,16 @@ namespace Snap.Renamed
 
         public string ServiceName => "Greeter";
 
+#pragma warning disable CS1998
         public async Task<byte[]> DispatchAsync(string method, byte[] payload, ISerializer serializer, CancellationToken ct = default)
+#pragma warning restore CS1998
         {
             switch (method)
             {
                 case "Greet":
                 {
                     var arg = serializer.Deserialize<string>(payload);
-                    var result = await _service.HelloAsync(arg, ct);
+                    var result = await _service.HelloAsync(arg);
                     return serializer.Serialize(result);
                 }
                 default:
