@@ -225,6 +225,53 @@ public class IncrementalCacheTests
     }
 
     [Fact]
+    public void GeneratedExtensions_AreStableWhenSyntaxTreeOrderChanges()
+    {
+        const string serviceA = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading.Tasks;
+
+            namespace Demo.OrderA
+            {
+                [ShaRpcService]
+                public interface IOrderA
+                {
+                    Task<int> AAsync();
+                }
+            }
+            """;
+
+        const string serviceB = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading.Tasks;
+
+            namespace Demo.OrderB
+            {
+                [ShaRpcService]
+                public interface IOrderB
+                {
+                    Task<int> BAsync();
+                }
+            }
+            """;
+
+        var first = GeneratedExtensionsFor(serviceA, serviceB);
+        var second = GeneratedExtensionsFor(serviceB, serviceA);
+
+        second.Should().Be(first,
+            "the aggregate extensions file should be sorted by service identity, not syntax-tree order");
+    }
+
+    private static string GeneratedExtensionsFor(params string[] sources)
+    {
+        var compilation = GeneratorTestHelper.CreateCompilation(sources);
+        var driver = GeneratorTestHelper.CreateDriver().RunGenerators(compilation);
+        return driver.GetRunResult().Results.Single().GeneratedSources
+            .Single(g => g.HintName == "ShaRpcExtensions.g.cs")
+            .SourceText.ToString();
+    }
+
+    [Fact]
     public void RemovingServiceAttribute_DropsServiceFromOutputs()
     {
         var serviceTree = CSharpSyntaxTree.ParseText(Service1Default);

@@ -190,7 +190,11 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
 
         var allServices = models
             .Collect()
-            .Select(static (arr, _) => arr.ToEquatableArray())
+            .Select(static (arr, _) => arr
+                .OrderBy(static service => service.Namespace, StringComparer.Ordinal)
+                .ThenBy(static service => service.InterfaceName, StringComparer.Ordinal)
+                .ThenBy(static service => service.ServiceName, StringComparer.Ordinal)
+                .ToEquatableArray())
             .WithTrackingName("AllServices");
 
         context.RegisterSourceOutput(allServices, static (spc, services) =>
