@@ -77,6 +77,69 @@ public class SnapshotTests
         }
         """;
 
+    private const string ValueTaskService = """
+        using ShaRPC.Core.Attributes;
+        using System.Threading.Tasks;
+
+        namespace Snap.Vt
+        {
+            [ShaRpcService]
+            public interface IVtSnap
+            {
+                ValueTask<int> AddAsync(int a, int b);
+                ValueTask PingAsync();
+            }
+        }
+        """;
+
+    private const string RefOutStubService = """
+        using ShaRPC.Core.Attributes;
+        using System.Threading.Tasks;
+
+        namespace Snap.RefOut
+        {
+            [ShaRpcService]
+            public interface IRefOutSnap
+            {
+                void BadOut(out int x);
+                Task<int> GoodAsync(int a);
+            }
+        }
+        """;
+
+    private const string InheritedMembersService = """
+        using ShaRPC.Core.Attributes;
+        using System.Threading.Tasks;
+
+        namespace Snap.Inherit
+        {
+            public interface IBase
+            {
+                Task<int> BaseAsync(int x);
+            }
+
+            [ShaRpcService]
+            public interface IDerived : IBase
+            {
+                Task<string> DerivedAsync();
+            }
+        }
+        """;
+
+    private const string KeywordEscapedParamsService = """
+        using ShaRPC.Core.Attributes;
+        using System.Threading.Tasks;
+
+        namespace Snap.Kw
+        {
+            [ShaRpcService]
+            public interface IKwSnap
+            {
+                Task<int> DoAsync(int @class, int @default);
+            }
+        }
+        """;
+
     [Fact]
     public Task SingleMethod() => RunVerify(SingleMethodService);
 
@@ -88,6 +151,18 @@ public class SnapshotTests
 
     [Fact]
     public Task TwoServicesInOneCompilation() => RunVerify(TwoServices);
+
+    [Fact]
+    public Task ValueTaskReturns() => RunVerify(ValueTaskService);
+
+    [Fact]
+    public Task RefOutStub() => RunVerify(RefOutStubService);
+
+    [Fact]
+    public Task InheritedMembers() => RunVerify(InheritedMembersService);
+
+    [Fact]
+    public Task KeywordEscapedParameters() => RunVerify(KeywordEscapedParamsService);
 
     private static Task RunVerify(string source)
     {

@@ -263,36 +263,9 @@ public class CodegenRegressionTests
         AssertCompiles(final);
     }
 
-    [Fact]
-    public void ZeroParamVoidMethod_UsesNoResponseOverload()
-    {
-        // Regression for M1: a zero-parameter void method must NOT use the no-payload
-        // Task<TResponse> overload (which would force the serializer to deserialize an
-        // empty response). It should use the no-response overload with a dummy request.
-        const string source = """
-            using ShaRPC.Core.Attributes;
-
-            namespace Regress.ZeroVoid
-            {
-                [ShaRpcService]
-                public interface IZv
-                {
-                    void Ping();
-                }
-            }
-            """;
-
-        var (final, runResult) = Run(source);
-        AssertCompiles(final);
-
-        var proxy = runResult.Results.Single().GeneratedSources
-            .Single(g => g.HintName == "Regress_ZeroVoid_IZv.ShaRpcProxy.g.cs")
-            .SourceText.ToString();
-        // The Ping body must call the no-response overload signature, which takes a
-        // request payload in addition to (service, method, ct).
-        proxy.Should().Contain("new object()",
-            "the generator must pass a dummy request payload to select the no-response InvokeAsync<TRequest> overload");
-    }
+    // Note: ZeroParamVoidMethod_UsesNoResponseOverload (string-Contains on "new object()")
+    // was deleted in favour of ZeroParamVoid_AtRuntime_SelectsNoResponseOverload below,
+    // which proves the same intent via the actual overload that runs.
 
     /// <summary>
     /// Regression for the hint-name collision discovered in round 2 review:
@@ -483,6 +456,187 @@ public class CodegenRegressionTests
         public Task<TR> InvokeAsync<TQ, TR>(string s, string m, TQ q, System.Threading.CancellationToken ct = default) => Task.FromResult(default(TR)!);
         public Task<TR> InvokeAsync<TR>(string s, string m, System.Threading.CancellationToken ct = default) => Task.FromResult(default(TR)!);
         public Task InvokeAsync<TQ>(string s, string m, TQ q, System.Threading.CancellationToken ct = default) => Task.CompletedTask;
+        public System.Threading.Tasks.ValueTask DisposeAsync() => default;
+    }
+
+    /// <summary>
+    /// Regression: a service interface declared inside the <c>ShaRPC.Core.*</c> namespace
+    /// must still compile. The generated code references `global::ShaRPC.Core.Client.IShaRpcClient`
+    /// etc. — without the `global::` qualifier the user's namespace would shadow ours.
+    /// </summary>
+    [Fact]
+    public void ServiceInShaRpcCoreNamespace_StillResolvesGlobalTypes()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading.Tasks;
+
+            namespace ShaRPC.Core.MyService
+            {
+                [ShaRpcService]
+                public interface IMine
+                {
+                    Task<int> CountAsync();
+                }
+            }
+            """;
+
+        var (final, _) = Run(source);
+        AssertCompiles(final);
+    }
+
+    /// <summary>
+    /// Regression: a service whose every method has an unsupported shape (ref/out)
+    /// must still produce a proxy class that satisfies the interface — every method
+    /// is a throwing stub — and a dispatcher whose switch has zero cases.
+    /// </summary>
+    [Fact]
+    public void ServiceWithOnlyRefOutMethods_StillImplementsInterface_AndStubsAllThrow()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+
+            namespace Regress.AllUnsupported
+            {
+                [ShaRpcService]
+                public interface IAllBad
+                {
+                    void OnlyOut(out int x);
+                    void OnlyRef(ref int x);
+                }
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var driver = GeneratorTestHelper.CreateDriver().RunGenerators(compilation);
+        var runResult = driver.GetRunResult();
+        var finalCompilation = ((CSharpCompilation)compilation).AddSyntaxTrees(runResult.GeneratedTrees);
+
+        using var ms = new MemoryStream();
+        finalCompilation.Emit(ms).Success.Should().BeTrue(
+            "an all-unsupported service must still produce a class that implements the interface");
+
+        runResult.Diagnostics.Where(d => d.Id == "SHARPC002")
+            .Should().HaveCount(2, "both methods should each surface SHARPC002");
+
+        ms.Position = 0;
+        var alc = new System.Runtime.Loader.AssemblyLoadContext(
+            "AllUnsupported_" + Guid.NewGuid(), isCollectible: false);
+        var asm = alc.LoadFromStream(ms);
+        var proxyType = asm.GetType("Regress.AllUnsupported.AllBadProxy")!;
+        var proxy = Activator.CreateInstance(proxyType, new NullClient())!;
+
+        var outArgs = new object[] { 0 };
+        Assert.Throws<System.Reflection.TargetInvocationException>(
+                () => proxyType.GetMethod("OnlyOut")!.Invoke(proxy, outArgs))
+            .InnerException.Should().BeOfType<NotSupportedException>();
+
+        var refArgs = new object[] { 0 };
+        Assert.Throws<System.Reflection.TargetInvocationException>(
+                () => proxyType.GetMethod("OnlyRef")!.Invoke(proxy, refArgs))
+            .InnerException.Should().BeOfType<NotSupportedException>();
+    }
+
+    /// <summary>
+    /// Regression: <see cref="ShaRPC.Core.Attributes.ShaRpcMethodAttribute"/> declared on
+    /// a BASE interface method must propagate to the wire name used by the DERIVED proxy.
+    /// </summary>
+    [Fact]
+    public void InheritedShaRpcMethodNameAttribute_IsUsedAsWireMethodName()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading.Tasks;
+
+            namespace Regress.InheritWire
+            {
+                public interface IBaseWire
+                {
+                    [ShaRpcMethod(Name = "wire_name")]
+                    Task<int> FetchAsync(int id);
+                }
+
+                [ShaRpcService]
+                public interface IDerivedWire : IBaseWire
+                {
+                }
+            }
+            """;
+
+        var (final, runResult) = Run(source);
+        AssertCompiles(final);
+
+        var dispatcher = runResult.Results.Single().GeneratedSources
+            .Single(g => g.HintName == GeneratorTestHelper.HintName(
+                "Regress.InheritWire", "IDerivedWire", GeneratorTestHelper.GeneratedKind.Dispatcher))
+            .SourceText.ToString();
+        dispatcher.Should().Contain("case \"wire_name\":",
+            "the inherited [ShaRpcMethod(Name=...)] must drive the dispatcher's case literal");
+        dispatcher.Should().NotContain("case \"FetchAsync\":",
+            "the CLR name must not leak into the wire when an explicit name is set");
+    }
+
+    /// <summary>
+    /// Behavioral test: a <see cref="ValueTask{TResult}"/>-returning proxy method must
+    /// await correctly and surface the awaited value at runtime.
+    /// </summary>
+    [Fact]
+    public async Task ValueTaskOfT_AtRuntime_ReturnsAwaitedValue()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading.Tasks;
+
+            namespace Regress.VtRun
+            {
+                [ShaRpcService]
+                public interface IVtRun
+                {
+                    ValueTask<int> AddAsync(int a, int b);
+                    ValueTask PingAsync();
+                }
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var driver = GeneratorTestHelper.CreateDriver().RunGenerators(compilation);
+        var runResult = driver.GetRunResult();
+        var finalCompilation = ((CSharpCompilation)compilation).AddSyntaxTrees(runResult.GeneratedTrees);
+
+        using var ms = new MemoryStream();
+        finalCompilation.Emit(ms).Success.Should().BeTrue();
+        ms.Position = 0;
+        var alc = new System.Runtime.Loader.AssemblyLoadContext(
+            "VtRun_" + Guid.NewGuid(), isCollectible: false);
+        var asm = alc.LoadFromStream(ms);
+
+        var client = new ValueReturningClient { NextResult = 12 };
+        var proxyType = asm.GetType("Regress.VtRun.VtRunProxy")!;
+        var proxy = Activator.CreateInstance(proxyType, client)!;
+
+        // Invoke AddAsync → ValueTask<int>; convert to Task via AsTask() reflection.
+        var vt = proxyType.GetMethod("AddAsync")!.Invoke(proxy, new object[] { 4, 8 })!;
+        var asTask = (Task<int>)vt.GetType().GetMethod("AsTask")!.Invoke(vt, null)!;
+        (await asTask).Should().Be(12);
+
+        // Invoke PingAsync → ValueTask; await its AsTask().
+        var vtPing = proxyType.GetMethod("PingAsync")!.Invoke(proxy, Array.Empty<object>())!;
+        var asTaskPing = (Task)vtPing.GetType().GetMethod("AsTask")!.Invoke(vtPing, null)!;
+        await asTaskPing;
+    }
+
+    /// <summary>A client whose <c>Task&lt;TResponse&gt;</c> overload returns a configured value.</summary>
+    private sealed class ValueReturningClient : global::ShaRPC.Core.Client.IShaRpcClient
+    {
+        public object? NextResult;
+        public bool IsConnected => true;
+        public Task ConnectAsync(System.Threading.CancellationToken ct = default) => Task.CompletedTask;
+        public Task<TR> InvokeAsync<TQ, TR>(string s, string m, TQ q, System.Threading.CancellationToken ct = default)
+            => Task.FromResult((TR)NextResult!);
+        public Task<TR> InvokeAsync<TR>(string s, string m, System.Threading.CancellationToken ct = default)
+            => Task.FromResult((TR)NextResult!);
+        public Task InvokeAsync<TQ>(string s, string m, TQ q, System.Threading.CancellationToken ct = default)
+            => Task.CompletedTask;
         public System.Threading.Tasks.ValueTask DisposeAsync() => default;
     }
 

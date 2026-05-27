@@ -64,4 +64,27 @@ internal static class GeneratorTestHelper
         var driver = CreateDriver().RunGenerators(compilation);
         return (driver, compilation);
     }
+
+    public enum GeneratedKind
+    {
+        Proxy,
+        Dispatcher,
+    }
+
+    /// <summary>
+    /// Reconstructs the hint name the generator produces for a (namespace, interface, kind)
+    /// tuple. Mirrors <see cref="ShaRPC.SourceGenerator.ShaRpcGenerator.HintNamePrefix"/>:
+    /// the namespace (with dots replaced by underscores) is prepended to the interface
+    /// name so two services with the same simple name don't collide on <see cref="SourceProductionContext.AddSource"/>.
+    /// Use this in tests instead of hardcoded literals so a future naming-scheme change
+    /// only requires one edit.
+    /// </summary>
+    public static string HintName(string @namespace, string interfaceName, GeneratedKind kind)
+    {
+        var prefix = string.IsNullOrEmpty(@namespace)
+            ? interfaceName
+            : @namespace.Replace('.', '_') + "_" + interfaceName;
+        var suffix = kind == GeneratedKind.Proxy ? "ShaRpcProxy" : "ShaRpcDispatcher";
+        return $"{prefix}.{suffix}.g.cs";
+    }
 }
