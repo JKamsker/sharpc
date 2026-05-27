@@ -35,8 +35,8 @@ public class DiagnosticTests
         runResult.Diagnostics.Should().NotContain(d => d.Id == "SHARPC001" && d.Severity == DiagnosticSeverity.Error);
 
         var hints = runResult.Results.Single().GeneratedSources.Select(g => g.HintName).ToArray();
-        hints.Should().Contain("IEmpty.ShaRpcProxy.g.cs");
-        hints.Should().Contain("IEmpty.ShaRpcDispatcher.g.cs");
+        hints.Should().Contain("Diag_Empty_IEmpty.ShaRpcProxy.g.cs");
+        hints.Should().Contain("Diag_Empty_IEmpty.ShaRpcDispatcher.g.cs");
         hints.Should().Contain("ShaRpcExtensions.g.cs");
 
         // The combined compilation should emit successfully.
@@ -81,8 +81,8 @@ public class DiagnosticTests
 
         // Positive assertion: per-service hint names must still be produced.
         var hints = runResult.Results.Single().GeneratedSources.Select(g => g.HintName).ToArray();
-        hints.Should().Contain("IBroken.ShaRpcProxy.g.cs",
+        hints.Should().Contain("Diag_Broken_IBroken.ShaRpcProxy.g.cs",
             "the generator should still emit a proxy hint for IBroken so consumers see something");
-        hints.Should().Contain("IBroken.ShaRpcDispatcher.g.cs");
+        hints.Should().Contain("Diag_Broken_IBroken.ShaRpcDispatcher.g.cs");
     }
 }

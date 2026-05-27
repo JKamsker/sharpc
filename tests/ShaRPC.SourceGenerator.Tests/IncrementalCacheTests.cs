@@ -178,7 +178,7 @@ public class IncrementalCacheTests
 
         // Generated proxy must contain the new method name.
         var proxy = result.Results.Single().GeneratedSources
-            .Single(g => g.HintName == "IFooService.ShaRpcProxy.g.cs")
+            .Single(g => g.HintName == "Demo_Svc_IFooService.ShaRpcProxy.g.cs")
             .SourceText.ToString();
         proxy.Should().Contain("SumAsync(int a, int b");
         proxy.Should().NotContain("AddAsync(");
@@ -219,8 +219,8 @@ public class IncrementalCacheTests
 
         // Sanity: both services have generated files.
         var hints = result.Results.Single().GeneratedSources.Select(g => g.HintName).ToArray();
-        hints.Should().Contain("IFooService.ShaRpcProxy.g.cs");
-        hints.Should().Contain("IBarService.ShaRpcProxy.g.cs");
+        hints.Should().Contain("Demo_Svc_IFooService.ShaRpcProxy.g.cs");
+        hints.Should().Contain("Demo_Svc2_IBarService.ShaRpcProxy.g.cs");
         hints.Should().Contain("ShaRpcExtensions.g.cs");
     }
 
@@ -234,7 +234,7 @@ public class IncrementalCacheTests
 
         // Run 1 sanity
         driver.GetRunResult().Results.Single().GeneratedSources
-            .Should().Contain(g => g.HintName == "IFooService.ShaRpcProxy.g.cs");
+            .Should().Contain(g => g.HintName == "Demo_Svc_IFooService.ShaRpcProxy.g.cs");
 
         var withoutAttr = CSharpSyntaxTree.ParseText("""
             using System.Threading.Tasks;
@@ -254,9 +254,9 @@ public class IncrementalCacheTests
         var result = driver.GetRunResult();
 
         result.Results.Single().GeneratedSources
-            .Should().NotContain(g => g.HintName == "IFooService.ShaRpcProxy.g.cs");
+            .Should().NotContain(g => g.HintName == "Demo_Svc_IFooService.ShaRpcProxy.g.cs");
         result.Results.Single().GeneratedSources
-            .Should().NotContain(g => g.HintName == "IFooService.ShaRpcDispatcher.g.cs");
+            .Should().NotContain(g => g.HintName == "Demo_Svc_IFooService.ShaRpcDispatcher.g.cs");
         // Extensions is not emitted when there are no services.
         result.Results.Single().GeneratedSources
             .Should().NotContain(g => g.HintName == "ShaRpcExtensions.g.cs");

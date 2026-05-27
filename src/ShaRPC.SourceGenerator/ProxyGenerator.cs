@@ -90,7 +90,7 @@ internal static class ProxyGenerator
 
         if (method.UnsupportedReason is not null)
         {
-            sb.AppendLine($"            throw new global::System.NotSupportedException(\"ShaRPC cannot marshal '{method.Name}': {EscapeForLiteral(method.UnsupportedReason)}\");");
+            sb.AppendLine($"            throw new global::System.NotSupportedException(\"ShaRPC cannot marshal '{method.Name}': {ShaRpcGenerator.EscapeStringLiteral(method.UnsupportedReason)}\");");
         }
         else
         {
@@ -100,9 +100,6 @@ internal static class ProxyGenerator
 
         sb.AppendLine("        }");
     }
-
-    private static string EscapeForLiteral(string s) =>
-        s.Replace("\\", "\\\\").Replace("\"", "\\\"");
 
     /// <summary>
     /// Builds the call to <c>_client.InvokeAsync(...)</c>. Picks the most direct overload

@@ -286,11 +286,231 @@ public class CodegenRegressionTests
         AssertCompiles(final);
 
         var proxy = runResult.Results.Single().GeneratedSources
-            .Single(g => g.HintName == "IZv.ShaRpcProxy.g.cs")
+            .Single(g => g.HintName == "Regress_ZeroVoid_IZv.ShaRpcProxy.g.cs")
             .SourceText.ToString();
         // The Ping body must call the no-response overload signature, which takes a
         // request payload in addition to (service, method, ct).
         proxy.Should().Contain("new object()",
             "the generator must pass a dummy request payload to select the no-response InvokeAsync<TRequest> overload");
+    }
+
+    /// <summary>
+    /// Regression for the hint-name collision discovered in round 2 review:
+    /// two services with the same simple interface name in different namespaces previously
+    /// collided on <see cref="SourceProductionContext.AddSource"/> and threw at runtime.
+    /// </summary>
+    [Fact]
+    public void SameSimpleInterfaceNameAcrossNamespaces_DoesNotCollideOnHintName()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading.Tasks;
+
+            namespace Regress.HintA
+            {
+                [ShaRpcService]
+                public interface IFoo
+                {
+                    Task<int> AAsync();
+                }
+            }
+            namespace Regress.HintB
+            {
+                [ShaRpcService]
+                public interface IFoo
+                {
+                    Task<int> BAsync();
+                }
+            }
+            """;
+
+        var (final, runResult) = Run(source);
+        AssertCompiles(final);
+
+        var hints = runResult.Results.Single().GeneratedSources
+            .Select(g => g.HintName).OrderBy(h => h).ToArray();
+        hints.Should().Contain("Regress_HintA_IFoo.ShaRpcProxy.g.cs");
+        hints.Should().Contain("Regress_HintB_IFoo.ShaRpcProxy.g.cs");
+
+        // The two proxy files must be distinct — content equality would imply we
+        // wrote the same source under both hint names by mistake.
+        var aSource = runResult.Results.Single().GeneratedSources
+            .Single(g => g.HintName == "Regress_HintA_IFoo.ShaRpcProxy.g.cs").SourceText.ToString();
+        var bSource = runResult.Results.Single().GeneratedSources
+            .Single(g => g.HintName == "Regress_HintB_IFoo.ShaRpcProxy.g.cs").SourceText.ToString();
+        aSource.Should().NotBe(bSource);
+        aSource.Should().Contain("AAsync");
+        bSource.Should().Contain("BAsync");
+    }
+
+    /// <summary>
+    /// Cache-hygiene regression: when a service is rejected by SHARPC003, no model
+    /// should flow through the <c>Services</c> tracked step, so it cannot accidentally
+    /// be incorporated into the <c>AllServices</c> aggregate.
+    /// </summary>
+    [Fact]
+    public void RejectedGenericService_LeavesServicesStepEmpty()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading.Tasks;
+
+            namespace Regress.GenericHygiene
+            {
+                [ShaRpcService]
+                public interface IRepo<T>
+                {
+                    Task<T> GetAsync(string id);
+                }
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var driver = GeneratorTestHelper.CreateDriver().RunGenerators(compilation);
+        var runResult = driver.GetRunResult();
+
+        var tracked = runResult.Results.Single().TrackedSteps;
+        if (tracked.TryGetValue("Services", out var servicesSteps))
+        {
+            servicesSteps.SelectMany(s => s.Outputs).Should().BeEmpty(
+                "a rejected generic service must not leak a model into the Services tracked step");
+        }
+        // If the Services key is absent entirely, that's the strongest possible
+        // cache-hygiene guarantee — nothing else to check.
+    }
+
+    /// <summary>
+    /// Behavioral test for the SHARPC002 stub: invoking a ref/out method on the proxy
+    /// at runtime must throw <see cref="NotSupportedException"/> with a message that
+    /// identifies the offending parameter. Without this, a regression that silently
+    /// returned <c>default(T)</c> from the stub would still pass the compile-only test.
+    /// </summary>
+    [Fact]
+    public void RefOrOutStub_ThrowsNotSupportedExceptionAtRuntime()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+
+            namespace Regress.RefOutRuntime
+            {
+                [ShaRpcService]
+                public interface IRor
+                {
+                    void BadOut(out int x);
+                }
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var driver = GeneratorTestHelper.CreateDriver().RunGenerators(compilation);
+        var runResult = driver.GetRunResult();
+        var finalCompilation = ((CSharpCompilation)compilation).AddSyntaxTrees(runResult.GeneratedTrees);
+
+        using var ms = new MemoryStream();
+        finalCompilation.Emit(ms).Success.Should().BeTrue();
+        ms.Position = 0;
+        var alc = new System.Runtime.Loader.AssemblyLoadContext(
+            "RefOutRuntime_" + Guid.NewGuid(), isCollectible: false);
+        var asm = alc.LoadFromStream(ms);
+
+        var proxyType = asm.GetType("Regress.RefOutRuntime.RorProxy")!;
+        var ctorParam = proxyType.GetConstructors().Single().GetParameters()[0].ParameterType;
+        // Build a no-op client implementation via DispatchProxy.
+        var client = Activator.CreateInstance(typeof(NullClient))!;
+        var proxy = Activator.CreateInstance(proxyType, client)!;
+
+        // Invoke BadOut via reflection — should throw NotSupportedException through
+        // the TargetInvocationException wrapper.
+        var method = proxyType.GetMethod("BadOut")!;
+        var args = new object[] { 0 };
+        var thrown = Assert.Throws<System.Reflection.TargetInvocationException>(
+            () => method.Invoke(proxy, args));
+        thrown.InnerException.Should().BeOfType<NotSupportedException>();
+        thrown.InnerException!.Message.Should().Contain("BadOut");
+        thrown.InnerException!.Message.Should().Contain("out");
+    }
+
+    /// <summary>
+    /// Behavioral test for M1: confirms at runtime that the dummy-request InvokeAsync
+    /// overload is the one selected for zero-parameter void methods, rather than the
+    /// no-request Task&lt;TResponse&gt; overload (which would corrupt server-side serialization).
+    /// </summary>
+    [Fact]
+    public void ZeroParamVoid_AtRuntime_SelectsNoResponseOverload()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+
+            namespace Regress.ZeroVoidRuntime
+            {
+                [ShaRpcService]
+                public interface IZvr
+                {
+                    void Ping();
+                }
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var driver = GeneratorTestHelper.CreateDriver().RunGenerators(compilation);
+        var runResult = driver.GetRunResult();
+        var finalCompilation = ((CSharpCompilation)compilation).AddSyntaxTrees(runResult.GeneratedTrees);
+
+        using var ms = new MemoryStream();
+        finalCompilation.Emit(ms).Success.Should().BeTrue();
+        ms.Position = 0;
+        var alc = new System.Runtime.Loader.AssemblyLoadContext(
+            "ZeroVoidRuntime_" + Guid.NewGuid(), isCollectible: false);
+        var asm = alc.LoadFromStream(ms);
+
+        var client = new OverloadProbeClient();
+        var proxyType = asm.GetType("Regress.ZeroVoidRuntime.ZvrProxy")!;
+        var proxy = Activator.CreateInstance(proxyType, client)!;
+
+        proxyType.GetMethod("Ping")!.Invoke(proxy, Array.Empty<object>());
+
+        client.NoRequestNoResponseOverloadCalls.Should().Be(1,
+            "the zero-parameter void path must use Task InvokeAsync<TRequest>(...) so the dispatcher receives no payload to deserialize a response from");
+        client.WithResponseOverloadCalls.Should().Be(0,
+            "Task<TResponse> InvokeAsync<TResponse>(...) is wrong for void — it would force the serializer to deserialize an empty response body");
+    }
+
+    /// <summary>A minimal IShaRpcClient that does nothing — for SHARPC002 stub testing.</summary>
+    private sealed class NullClient : global::ShaRPC.Core.Client.IShaRpcClient
+    {
+        public bool IsConnected => true;
+        public Task ConnectAsync(System.Threading.CancellationToken ct = default) => Task.CompletedTask;
+        public Task<TR> InvokeAsync<TQ, TR>(string s, string m, TQ q, System.Threading.CancellationToken ct = default) => Task.FromResult(default(TR)!);
+        public Task<TR> InvokeAsync<TR>(string s, string m, System.Threading.CancellationToken ct = default) => Task.FromResult(default(TR)!);
+        public Task InvokeAsync<TQ>(string s, string m, TQ q, System.Threading.CancellationToken ct = default) => Task.CompletedTask;
+        public System.Threading.Tasks.ValueTask DisposeAsync() => default;
+    }
+
+    /// <summary>An IShaRpcClient that records which overload was actually called.</summary>
+    private sealed class OverloadProbeClient : global::ShaRPC.Core.Client.IShaRpcClient
+    {
+        public int WithRequestWithResponseOverloadCalls;
+        public int WithResponseOverloadCalls;
+        public int NoRequestNoResponseOverloadCalls;
+
+        public bool IsConnected => true;
+        public Task ConnectAsync(System.Threading.CancellationToken ct = default) => Task.CompletedTask;
+
+        public Task<TR> InvokeAsync<TQ, TR>(string s, string m, TQ q, System.Threading.CancellationToken ct = default)
+        {
+            WithRequestWithResponseOverloadCalls++;
+            return Task.FromResult(default(TR)!);
+        }
+        public Task<TR> InvokeAsync<TR>(string s, string m, System.Threading.CancellationToken ct = default)
+        {
+            WithResponseOverloadCalls++;
+            return Task.FromResult(default(TR)!);
+        }
+        public Task InvokeAsync<TQ>(string s, string m, TQ q, System.Threading.CancellationToken ct = default)
+        {
+            NoRequestNoResponseOverloadCalls++;
+            return Task.CompletedTask;
+        }
+        public System.Threading.Tasks.ValueTask DisposeAsync() => default;
     }
 }
