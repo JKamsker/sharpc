@@ -29,8 +29,8 @@ internal static class InheritedMethodDeduplicator
         return true;
     }
 
-    public static bool HasSameConfiguredWireName(IMethodSymbol left, IMethodSymbol right) =>
-        GetConfiguredMethodName(left) == GetConfiguredMethodName(right);
+    public static bool HasSameEffectiveWireName(IMethodSymbol left, IMethodSymbol right) =>
+        GetEffectiveWireName(left) == GetEffectiveWireName(right);
 
     public static MethodModel AddAdditionalExplicitImplementation(
         MethodModel method,
@@ -54,6 +54,9 @@ internal static class InheritedMethodDeduplicator
             RequiresDispatcherReceiverCast = true,
         };
     }
+
+    private static string GetEffectiveWireName(IMethodSymbol methodSymbol) =>
+        GetConfiguredMethodName(methodSymbol) ?? methodSymbol.Name;
 
     private static string? GetConfiguredMethodName(IMethodSymbol methodSymbol)
     {

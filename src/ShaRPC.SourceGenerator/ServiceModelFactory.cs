@@ -129,7 +129,7 @@ internal static class ServiceModelFactory
                         qualifiedInterfaceName);
                 }
 
-                if (!InheritedMethodDeduplicator.HasSameConfiguredWireName(existingMethod, methodSymbol))
+                if (!InheritedMethodDeduplicator.HasSameEffectiveWireName(existingMethod, methodSymbol))
                 {
                     return RejectedService(
                         displayName,

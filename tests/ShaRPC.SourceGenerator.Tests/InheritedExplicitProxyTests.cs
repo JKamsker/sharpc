@@ -142,6 +142,39 @@ public class InheritedExplicitProxyTests
             .Should().NotContain(g => g.HintName.Contains("IFoo."));
     }
 
+    [Fact]
+    public void DuplicateInheritedMethodsWithSameEffectiveWireName_Deduplicate()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+
+            namespace Regress.DuplicateInheritedSameWireName
+            {
+                public interface ILeft
+                {
+                    [ShaRpcMethod(Name = "Get")]
+                    int Get();
+                }
+
+                public interface IRight
+                {
+                    int Get();
+                }
+
+                [ShaRpcService]
+                public interface IFoo : ILeft, IRight
+                {
+                }
+            }
+            """;
+
+        var (final, runResult) = Run(source);
+        AssertCompiles(final);
+
+        runResult.Diagnostics.Should().NotContain(d => d.Id == "SHARPC003");
+        GetProxy(runResult).Should().Contain("public int Get()");
+    }
+
     private static string GetProxy(GeneratorDriverRunResult runResult) =>
         runResult.Results.Single().GeneratedSources
             .Single(g => g.HintName.EndsWith("IFoo.ShaRpcProxy.g.cs"))
