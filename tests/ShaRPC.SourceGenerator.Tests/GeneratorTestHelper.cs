@@ -85,11 +85,16 @@ internal static class GeneratorTestHelper
     public static string HintName(string @namespace, string interfaceName, GeneratedKind kind)
     {
         var prefix = string.IsNullOrEmpty(@namespace)
-            ? interfaceName
+            ? GlobalPrefix(interfaceName)
             : NamespaceIdentifierPrefix(@namespace) + "_" + interfaceName;
         var suffix = kind == GeneratedKind.Proxy ? "ShaRpcProxy" : "ShaRpcDispatcher";
         return $"{prefix}.{suffix}.g.cs";
     }
+
+    private static string GlobalPrefix(string interfaceName) =>
+        interfaceName.IndexOf('_') >= 0
+            ? "Global-" + interfaceName
+            : interfaceName;
 
     private static string NamespaceIdentifierPrefix(string namespaceName)
     {

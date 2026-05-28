@@ -116,6 +116,39 @@ public class ReviewedCodegenRegressionTests
         dispatcher.Should().Contain("\"method\\u2029name\"");
     }
 
+    [Fact]
+    public void GlobalUnderscoreInterface_DoesNotCollideWithNamespacedHintPrefix()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading.Tasks;
+
+            [ShaRpcService(Name = "Global.A_B")]
+            public interface A_B
+            {
+                Task<int> OneAsync();
+            }
+
+            namespace A
+            {
+                [ShaRpcService(Name = "Namespace.A.B")]
+                public interface B
+                {
+                    Task<int> TwoAsync();
+                }
+            }
+            """;
+
+        var (final, runResult) = Run(source);
+        AssertCompiles(final);
+
+        var hints = runResult.Results.Single().GeneratedSources
+            .Select(g => g.HintName)
+            .ToArray();
+        hints.Should().Contain("Global-A_B.ShaRpcProxy.g.cs");
+        hints.Should().Contain("A_B.ShaRpcProxy.g.cs");
+    }
+
     private static (CSharpCompilation Final, GeneratorDriverRunResult RunResult) Run(string source)
     {
         var compilation = GeneratorTestHelper.CreateCompilation(source);

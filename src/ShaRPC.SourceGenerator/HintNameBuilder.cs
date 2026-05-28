@@ -11,8 +11,11 @@ internal static class HintNameBuilder
     {
         if (string.IsNullOrEmpty(model.Namespace))
         {
-            return model.InterfaceName;
+            return model.InterfaceName.IndexOf('_') >= 0
+                ? "Global-" + model.InterfaceName
+                : model.InterfaceName;
         }
+
         return NamespaceIdentifierPrefix(model.Namespace) + "_" + model.InterfaceName;
     }
 
