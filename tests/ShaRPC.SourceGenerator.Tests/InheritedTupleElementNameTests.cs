@@ -67,10 +67,162 @@ public class InheritedTupleElementNameTests
 
         var (_, runResult) = Run(source);
 
-        runResult.Diagnostics.Should().Contain(d => d.Id == "SHARPC003" &&
-            d.GetMessage().Contains("incompatible tuple element names"));
-        runResult.Results.Single().GeneratedSources
-            .Should().NotContain(g => g.HintName.Contains("IFoo."));
+        AssertRejectedForTupleNames(runResult);
+    }
+
+    [Fact]
+    public void DuplicateInheritedMethodsWithNamedTupleAndValueTupleParameters_RejectService()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+
+            namespace Regress.DuplicateInheritedNamedTupleAndValueTuple
+            {
+                public interface ILeft
+                {
+                    int Echo((int A, int B) value);
+                }
+
+                public interface IRight
+                {
+                    int Echo(System.ValueTuple<int, int> value);
+                }
+
+                [ShaRpcService]
+                public interface IFoo : ILeft, IRight
+                {
+                }
+            }
+            """;
+
+        var (_, runResult) = Run(source);
+
+        AssertRejectedForTupleNames(runResult);
+    }
+
+    [Fact]
+    public void DuplicateInheritedMethodsWithUnnamedTupleAndValueTupleParameters_Deduplicate()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+
+            namespace Regress.DuplicateInheritedUnnamedTupleAndValueTuple
+            {
+                public interface ILeft
+                {
+                    int Echo((int, int) value);
+                }
+
+                public interface IRight
+                {
+                    int Echo(System.ValueTuple<int, int> value);
+                }
+
+                [ShaRpcService]
+                public interface IFoo : ILeft, IRight
+                {
+                }
+            }
+            """;
+
+        var (final, runResult) = Run(source);
+        AssertCompiles(final);
+
+        runResult.Diagnostics.Should().NotContain(d => d.Id == "SHARPC003");
+        GetProxy(runResult).Should().Contain("public int Echo((int, int) value)");
+    }
+
+    [Fact]
+    public void DuplicateInheritedMethodsWithDifferentTupleReturnNames_RejectService()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+
+            namespace Regress.DuplicateInheritedTupleReturnNames
+            {
+                public interface ILeft
+                {
+                    (int A, int B) Echo();
+                }
+
+                public interface IRight
+                {
+                    (int X, int Y) Echo();
+                }
+
+                [ShaRpcService]
+                public interface IFoo : ILeft, IRight
+                {
+                }
+            }
+            """;
+
+        var (_, runResult) = Run(source);
+
+        AssertRejectedForTupleNames(runResult);
+    }
+
+    [Fact]
+    public void DuplicateInheritedMethodsWithUnnamedTupleAndValueTupleReturns_Deduplicate()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+
+            namespace Regress.DuplicateInheritedUnnamedTupleAndValueTupleReturns
+            {
+                public interface ILeft
+                {
+                    (int, int) Echo();
+                }
+
+                public interface IRight
+                {
+                    System.ValueTuple<int, int> Echo();
+                }
+
+                [ShaRpcService]
+                public interface IFoo : ILeft, IRight
+                {
+                }
+            }
+            """;
+
+        var (final, runResult) = Run(source);
+        AssertCompiles(final);
+
+        runResult.Diagnostics.Should().NotContain(d => d.Id == "SHARPC003");
+        GetProxy(runResult).Should().Contain("public (int, int) Echo()");
+    }
+
+    [Fact]
+    public void DuplicateInheritedMethodsWithNestedGenericTupleNames_RejectService()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Collections.Generic;
+
+            namespace Regress.DuplicateInheritedNestedTupleNames
+            {
+                public interface ILeft
+                {
+                    int Echo(List<(int A, int B)[]> values);
+                }
+
+                public interface IRight
+                {
+                    int Echo(List<(int X, int Y)[]> values);
+                }
+
+                [ShaRpcService]
+                public interface IFoo : ILeft, IRight
+                {
+                }
+            }
+            """;
+
+        var (_, runResult) = Run(source);
+
+        AssertRejectedForTupleNames(runResult);
     }
 
     private static string GetProxy(GeneratorDriverRunResult runResult) =>
@@ -84,6 +236,14 @@ public class InheritedTupleElementNameTests
         var driver = GeneratorTestHelper.CreateDriver().RunGenerators(compilation);
         var runResult = driver.GetRunResult();
         return (compilation.AddSyntaxTrees(runResult.GeneratedTrees), runResult);
+    }
+
+    private static void AssertRejectedForTupleNames(GeneratorDriverRunResult runResult)
+    {
+        runResult.Diagnostics.Should().Contain(d => d.Id == "SHARPC003" &&
+            d.GetMessage().Contains("incompatible tuple element names"));
+        runResult.Results.Single().GeneratedSources
+            .Should().NotContain(g => g.HintName.Contains("IFoo."));
     }
 
     private static void AssertCompiles(CSharpCompilation compilation)

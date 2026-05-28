@@ -66,16 +66,9 @@ internal static class MethodSignatureFacts
 
         if (type is INamedTypeSymbol named)
         {
-            if (named.IsTupleType)
+            if (named.IsTupleType && named.TupleUnderlyingType is { } tupleUnderlyingType)
             {
-                var elements = new List<string>();
-                foreach (var element in named.TupleElements)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    elements.Add(GetCanonicalType(element.Type, method, ct));
-                }
-
-                return "(" + string.Join(",", elements) + ")";
+                return GetCanonicalNamedType(tupleUnderlyingType, method, ct);
             }
 
             return GetCanonicalNamedType(named, method, ct);

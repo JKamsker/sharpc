@@ -102,7 +102,7 @@ internal static class ServiceModelFactory
             var sigKey = MethodSignatureFacts.GetSignatureKey(methodSymbol, ct);
             if (seenSignatures.TryGetValue(sigKey, out var existingMethod))
             {
-                if (!InheritedMethodDeduplicator.HasCompatibleReturnShape(existingMethod, methodSymbol))
+                if (!InheritedMethodDeduplicator.HasCompatibleReturnShape(existingMethod, methodSymbol, ct))
                 {
                     return RejectedService(
                         displayName,
@@ -138,7 +138,7 @@ internal static class ServiceModelFactory
                         qualifiedInterfaceName);
                 }
 
-                if (!InheritedMethodDeduplicator.HasSameTupleElementNames(existingMethod, methodSymbol, ct))
+                if (!TupleElementNameComparer.HasSameElementNames(existingMethod, methodSymbol, ct))
                 {
                     return RejectedService(
                         displayName,
