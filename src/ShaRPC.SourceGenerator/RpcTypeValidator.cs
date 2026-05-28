@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Threading;
 using Microsoft.CodeAnalysis;
 
@@ -45,14 +46,17 @@ internal static class RpcTypeValidator
         ITypeSymbol type,
         string role,
         CancellationToken ct) =>
-        ContainsShaRpcServiceInterface(type, ct)
+        ContainsShaRpcServiceInterface(type, ct, new HashSet<string>(System.StringComparer.Ordinal))
             ? $"{role} contains a sub-service type; sub-services are only supported as direct Task<TService> or ValueTask<TService> return values"
             : null;
 
     public static bool RequiresUnsafeContext(ITypeSymbol type, CancellationToken ct) =>
         ContainsPointerType(type, ct) || ContainsFunctionPointerType(type, ct);
 
-    private static bool ContainsShaRpcServiceInterface(ITypeSymbol type, CancellationToken ct)
+    private static bool ContainsShaRpcServiceInterface(
+        ITypeSymbol type,
+        CancellationToken ct,
+        HashSet<string> visited)
     {
         ct.ThrowIfCancellationRequested();
 
@@ -63,20 +67,83 @@ internal static class RpcTypeValidator
                 return true;
             }
 
+            var key = named.OriginalDefinition.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            if (!visited.Add(key))
+            {
+                return false;
+            }
+
             foreach (var arg in named.TypeArguments)
             {
                 ct.ThrowIfCancellationRequested();
 
-                if (ContainsShaRpcServiceInterface(arg, ct))
+                if (ContainsShaRpcServiceInterface(arg, ct, visited))
                 {
                     return true;
                 }
+            }
+
+            if (CanInspectDtoMembers(named) && DtoMembersContainShaRpcServiceInterface(named, ct, visited))
+            {
+                return true;
             }
         }
 
         if (type is IArrayTypeSymbol array)
         {
-            return ContainsShaRpcServiceInterface(array.ElementType, ct);
+            return ContainsShaRpcServiceInterface(array.ElementType, ct, visited);
+        }
+
+        return false;
+    }
+
+    private static bool DtoMembersContainShaRpcServiceInterface(
+        INamedTypeSymbol type,
+        CancellationToken ct,
+        HashSet<string> visited)
+    {
+        foreach (var member in type.GetMembers())
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var memberType = member switch
+            {
+                IPropertySymbol { IsStatic: false, Parameters.Length: 0, DeclaredAccessibility: Accessibility.Public } property => property.Type,
+                IFieldSymbol { IsStatic: false, IsImplicitlyDeclared: false, DeclaredAccessibility: Accessibility.Public } field => field.Type,
+                _ => null,
+            };
+
+            if (memberType is not null && ContainsShaRpcServiceInterface(memberType, ct, visited))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool CanInspectDtoMembers(INamedTypeSymbol type)
+    {
+        if (type.SpecialType != SpecialType.None ||
+            type.TypeKind is not (TypeKind.Class or TypeKind.Struct))
+        {
+            return false;
+        }
+
+        var ns = type.ContainingNamespace;
+        return ns is null || ns.IsGlobalNamespace || !IsSystemNamespace(ns);
+    }
+
+    private static bool IsSystemNamespace(INamespaceSymbol ns)
+    {
+        while (!ns.IsGlobalNamespace)
+        {
+            if (ns.ContainingNamespace.IsGlobalNamespace)
+            {
+                return ns.Name == "System";
+            }
+
+            ns = ns.ContainingNamespace;
         }
 
         return false;

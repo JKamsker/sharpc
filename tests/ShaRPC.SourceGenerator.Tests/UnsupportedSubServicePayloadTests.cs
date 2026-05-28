@@ -67,6 +67,37 @@ public class UnsupportedSubServicePayloadTests
         AssertUnsupportedStub(runResult, "ListAsync");
     }
 
+    [Fact]
+    public void DtoContainingSubServiceReturn_BecomesUnsupportedStub()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading.Tasks;
+
+            namespace Regress.UnsupportedSubPayload
+            {
+                public sealed record Result(ISub Inner);
+
+                [ShaRpcService]
+                public interface ISub
+                {
+                    Task<int> CountAsync();
+                }
+
+                [ShaRpcService]
+                public interface IRoot
+                {
+                    Task<Result> GetAsync();
+                }
+            }
+            """;
+
+        var (final, runResult) = Run(source);
+        AssertCompiles(final);
+
+        AssertUnsupportedStub(runResult, "GetAsync");
+    }
+
     private static void AssertUnsupportedStub(GeneratorDriverRunResult runResult, string methodName)
     {
         runResult.Diagnostics.Should().Contain(d => d.Id == "SHARPC002" &&
