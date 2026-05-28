@@ -63,16 +63,23 @@ internal static class ServiceShapeValidator
         CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        foreach (var member in interfaceSymbol.GetMembers())
+        var members = interfaceSymbol.GetMembers();
+        ct.ThrowIfCancellationRequested();
+        foreach (var member in members)
         {
             ct.ThrowIfCancellationRequested();
             yield return member;
         }
 
-        foreach (var baseInterface in interfaceSymbol.AllInterfaces)
+        ct.ThrowIfCancellationRequested();
+        var baseInterfaces = interfaceSymbol.AllInterfaces;
+        ct.ThrowIfCancellationRequested();
+        foreach (var baseInterface in baseInterfaces)
         {
             ct.ThrowIfCancellationRequested();
-            foreach (var member in baseInterface.GetMembers())
+            var baseMembers = baseInterface.GetMembers();
+            ct.ThrowIfCancellationRequested();
+            foreach (var member in baseMembers)
             {
                 ct.ThrowIfCancellationRequested();
                 yield return member;

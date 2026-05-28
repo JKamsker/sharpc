@@ -92,6 +92,21 @@ internal readonly record struct ServiceIdentity(
             result.Model.InterfaceName,
             result.Model.ServiceName,
             result.QualifiedInterfaceName);
+
+    public static ServiceIdentity From(ServiceModel model) =>
+        new(
+            model.Namespace,
+            model.InterfaceName,
+            model.ServiceName,
+            IdentifierHelpers.QualifyTypeName(model.Namespace, model.InterfaceName));
+}
+
+internal readonly record struct GeneratedServiceIdentity(
+    string Namespace,
+    string InterfaceName)
+{
+    public static GeneratedServiceIdentity From(ServiceResult result) =>
+        new(result.Model!.Namespace, result.Model.InterfaceName);
 }
 
 internal readonly record struct RejectedServiceIdentity(string QualifiedInterfaceName)

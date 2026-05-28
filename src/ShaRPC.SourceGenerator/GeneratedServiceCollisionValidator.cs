@@ -7,7 +7,7 @@ namespace ShaRPC.SourceGenerator;
 internal sealed record GeneratedServiceNameIndex(EquatableArray<GeneratedServiceNameEntry> DuplicateEntries)
 {
     public static GeneratedServiceNameIndex Create(
-        ImmutableArray<ServiceIdentity> services,
+        ImmutableArray<GeneratedServiceIdentity> services,
         CancellationToken ct)
     {
         var entries = ImmutableArray.CreateBuilder<GeneratedServiceNameEntry>();

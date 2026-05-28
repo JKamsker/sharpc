@@ -179,7 +179,9 @@ internal static class ServiceModelFactory
         CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        foreach (var member in interfaceSymbol.GetMembers())
+        var members = interfaceSymbol.GetMembers();
+        ct.ThrowIfCancellationRequested();
+        foreach (var member in members)
         {
             ct.ThrowIfCancellationRequested();
             if (member is IMethodSymbol m && m.MethodKind == MethodKind.Ordinary)
@@ -188,10 +190,15 @@ internal static class ServiceModelFactory
             }
         }
 
-        foreach (var baseInterface in interfaceSymbol.AllInterfaces)
+        ct.ThrowIfCancellationRequested();
+        var baseInterfaces = interfaceSymbol.AllInterfaces;
+        ct.ThrowIfCancellationRequested();
+        foreach (var baseInterface in baseInterfaces)
         {
             ct.ThrowIfCancellationRequested();
-            foreach (var member in baseInterface.GetMembers())
+            var baseMembers = baseInterface.GetMembers();
+            ct.ThrowIfCancellationRequested();
+            foreach (var member in baseMembers)
             {
                 ct.ThrowIfCancellationRequested();
                 if (member is IMethodSymbol m && m.MethodKind == MethodKind.Ordinary)

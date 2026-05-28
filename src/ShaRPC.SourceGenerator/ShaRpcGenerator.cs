@@ -85,12 +85,12 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
                 GeneratedTypeCollisionValidator.Apply(pair.Left, pair.Right, ct))
             .WithTrackingName("ExistingTypeValidatedServiceResults");
 
-        var activeServiceIdentities = results
+        var generatedServiceIdentities = results
             .Where(static r => r.Model is not null)
-            .Select(static (r, _) => ServiceIdentity.From(r))
+            .Select(static (r, _) => GeneratedServiceIdentity.From(r))
             .WithTrackingName("GeneratedServiceNameInputs");
 
-        var generatedServiceNames = activeServiceIdentities
+        var generatedServiceNames = generatedServiceIdentities
             .Collect()
             .Select(static (arr, ct) => GeneratedServiceNameIndex.Create(arr, ct))
             .WithTrackingName("GeneratedServiceNames");
@@ -101,7 +101,7 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
                 GeneratedServiceCollisionValidator.Apply(pair.Left, pair.Right, ct))
             .WithTrackingName("GeneratedServiceValidatedServiceResults");
 
-        activeServiceIdentities = results
+        var activeServiceIdentities = results
             .Where(static r => r.Model is not null)
             .Select(static (r, _) => ServiceIdentity.From(r))
             .WithTrackingName("WireServiceNameInputs");
@@ -264,10 +264,10 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
         });
 
         var allServices = models
+            .Select(static (model, _) => ServiceIdentity.From(model))
             .Collect()
-            .Select(static (arr, ct) => ServiceModelOrdering.Sort(arr, ct))
+            .Select(static (arr, ct) => ServiceModelOrdering.SortIdentities(arr, ct))
             .WithTrackingName("AllServices");
-
         context.RegisterSourceOutput(allServices, static (spc, services) =>
         {
             if (services.IsEmpty)

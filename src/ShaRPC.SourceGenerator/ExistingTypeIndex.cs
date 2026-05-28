@@ -19,7 +19,18 @@ internal sealed record ExistingTypeIndex(EquatableArray<ExistingTypeKey> Types)
             return ExistingTypeKeyComparer.Instance.Compare(left, right);
         });
 
-        return new ExistingTypeIndex(types.ToEquatableArray());
+        var uniqueTypes = new List<ExistingTypeKey>(types.Count);
+        foreach (var type in types)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (uniqueTypes.Count == 0 ||
+                ExistingTypeKeyComparer.Instance.Compare(uniqueTypes[uniqueTypes.Count - 1], type) != 0)
+            {
+                uniqueTypes.Add(type);
+            }
+        }
+
+        return new ExistingTypeIndex(uniqueTypes.ToEquatableArray());
     }
 
     public bool Contains(ExistingTypeKey target, CancellationToken ct)

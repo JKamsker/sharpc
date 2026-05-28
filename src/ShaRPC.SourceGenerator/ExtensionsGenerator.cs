@@ -7,7 +7,7 @@ namespace ShaRPC.SourceGenerator;
 
 internal static class ExtensionsGenerator
 {
-    public static string Generate(EquatableArray<ServiceModel> services, CancellationToken ct = default)
+    public static string Generate(EquatableArray<ServiceIdentity> services, CancellationToken ct = default)
     {
         var sb = new StringBuilder();
         var extensionSuffixes = BuildExtensionSuffixes(services, ct);
@@ -56,7 +56,7 @@ internal static class ExtensionsGenerator
     }
 
     private static Dictionary<string, string> BuildExtensionSuffixes(
-        EquatableArray<ServiceModel> services,
+        EquatableArray<ServiceIdentity> services,
         CancellationToken ct)
     {
         var shortNameCounts = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -95,11 +95,11 @@ internal static class ExtensionsGenerator
         return suffixes;
     }
 
-    private static string QualifiedSuffix(ServiceModel service, string serviceName) =>
+    private static string QualifiedSuffix(ServiceIdentity service, string serviceName) =>
         string.IsNullOrEmpty(service.Namespace)
             ? serviceName
             : HintNameBuilder.NamespaceIdentifierPrefix(service.Namespace) + "_" + serviceName;
 
-    private static string ServiceKey(ServiceModel service) =>
+    private static string ServiceKey(ServiceIdentity service) =>
         service.Namespace + "\u001f" + service.InterfaceName + "\u001f" + service.ServiceName;
 }

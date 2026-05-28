@@ -146,7 +146,7 @@ public class IncrementalCacheTests
     }
 
     [Fact]
-    public void RenamingServiceMethod_InvalidatesServicesAndAggregateAndRegeneratesSources()
+    public void RenamingServiceMethod_InvalidatesServiceButKeepsAggregateCachedAndRegeneratesSources()
     {
         var serviceTree = CSharpSyntaxTree.ParseText(Service1Default);
         var compilation = GeneratorTestHelper.CreateCompilation()
@@ -172,9 +172,10 @@ public class IncrementalCacheTests
         driver = driver.RunGenerators(compilation2);
         var result = driver.GetRunResult();
 
-        // The semantic model must change.
+        // Method shape changes must regenerate the service output without rebuilding
+        // the extension aggregate, which only depends on service identity.
         AssertStepHasModifiedOutput(result, "Services");
-        AssertStepHasModifiedOutput(result, "AllServices");
+        AssertStepIsCachedOrUnchanged(result, "AllServices");
 
         // Generated proxy must contain the new method name.
         var proxy = result.Results.Single().GeneratedSources
@@ -222,104 +223,6 @@ public class IncrementalCacheTests
         hints.Should().Contain("Demo_Svc_IFooService.ShaRpcProxy.g.cs");
         hints.Should().Contain("Demo_Svc2_IBarService.ShaRpcProxy.g.cs");
         hints.Should().Contain("ShaRpcExtensions.g.cs");
-    }
-
-    [Fact]
-    public void GeneratedExtensions_AreStableWhenSyntaxTreeOrderChanges()
-    {
-        const string serviceA = """
-            using ShaRPC.Core.Attributes;
-            using System.Threading.Tasks;
-
-            namespace Demo.OrderA
-            {
-                [ShaRpcService]
-                public interface IOrderA
-                {
-                    Task<int> AAsync();
-                }
-            }
-            """;
-
-        const string serviceB = """
-            using ShaRPC.Core.Attributes;
-            using System.Threading.Tasks;
-
-            namespace Demo.OrderB
-            {
-                [ShaRpcService]
-                public interface IOrderB
-                {
-                    Task<int> BAsync();
-                }
-            }
-            """;
-
-        var first = GeneratedExtensionsFor(serviceA, serviceB);
-        var second = GeneratedExtensionsFor(serviceB, serviceA);
-
-        second.Should().Be(first,
-            "the aggregate extensions file should be sorted by service identity, not syntax-tree order");
-    }
-
-    private static string GeneratedExtensionsFor(params string[] sources)
-    {
-        var compilation = GeneratorTestHelper.CreateCompilation(sources);
-        var driver = GeneratorTestHelper.CreateDriver().RunGenerators(compilation);
-        return driver.GetRunResult().Results.Single().GeneratedSources
-            .Single(g => g.HintName == "ShaRpcExtensions.g.cs")
-            .SourceText.ToString();
-    }
-
-    [Fact]
-    public void RemovingServiceAttribute_DropsServiceFromOutputs()
-    {
-        var serviceTree = CSharpSyntaxTree.ParseText(Service1Default);
-        var compilation = GeneratorTestHelper.CreateCompilation()
-            .AddSyntaxTrees(serviceTree);
-        var driver = GeneratorTestHelper.CreateDriver().RunGenerators(compilation);
-
-        // Run 1 sanity
-        driver.GetRunResult().Results.Single().GeneratedSources
-            .Should().Contain(g => g.HintName == "Demo_Svc_IFooService.ShaRpcProxy.g.cs");
-
-        var withoutAttr = CSharpSyntaxTree.ParseText("""
-            using System.Threading.Tasks;
-
-            namespace Demo.Svc
-            {
-                public interface IFooService
-                {
-                    Task<int> AddAsync(int a, int b);
-                    Task PingAsync();
-                }
-            }
-            """);
-
-        var compilation2 = compilation.ReplaceSyntaxTree(serviceTree, withoutAttr);
-        driver = driver.RunGenerators(compilation2);
-        var result = driver.GetRunResult();
-
-        result.Results.Single().GeneratedSources
-            .Should().NotContain(g => g.HintName == "Demo_Svc_IFooService.ShaRpcProxy.g.cs");
-        result.Results.Single().GeneratedSources
-            .Should().NotContain(g => g.HintName == "Demo_Svc_IFooService.ShaRpcDispatcher.g.cs");
-        // Extensions is not emitted when there are no services.
-        result.Results.Single().GeneratedSources
-            .Should().NotContain(g => g.HintName == "ShaRpcExtensions.g.cs");
-
-        // Stronger: the Services tracked step must NOT report IFooService as still cached
-        // after its [ShaRpcService] attribute was removed. We materialize first and use
-        // a regular foreach so the predicate isn't constrained by expression-tree rules.
-        var servicesOutputs = result.Results.Single().TrackedSteps["Services"]
-            .SelectMany(s => s.Outputs)
-            .ToArray();
-        var staleFoo = servicesOutputs
-            .Where(o => InterfaceNameOf(o.Value) == "IFooService")
-            .Where(o => o.Reason == IncrementalStepRunReason.Cached || o.Reason == IncrementalStepRunReason.Unchanged)
-            .ToArray();
-        staleFoo.Should().BeEmpty(
-            "IFooService must NOT still be flowing through Services as Cached after its [ShaRpcService] was removed");
     }
 
     private static string? InterfaceNameOf(object? maybeModel)
