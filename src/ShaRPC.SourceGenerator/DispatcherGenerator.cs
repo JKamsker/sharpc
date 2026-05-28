@@ -141,7 +141,8 @@ internal static class DispatcherGenerator
         var requestParameters = GetRequestParameters(method.Parameters, ct);
         if (requestParameters.Count == 1)
         {
-            sb.AppendLine($"                    var arg = serializer.Deserialize<{requestParameters[0].Type}>(payload);");
+            var wireType = ProxyGenerationHelpers.GetWireType(requestParameters[0].Type);
+            sb.AppendLine($"                    var arg = serializer.Deserialize<{wireType}>(payload);");
         }
         else if (requestParameters.Count > 1)
         {
@@ -151,7 +152,7 @@ internal static class DispatcherGenerator
                 ct.ThrowIfCancellationRequested();
 
                 if (i > 0) tupleTypes.Append(", ");
-                tupleTypes.Append(requestParameters[i].Type);
+                tupleTypes.Append(ProxyGenerationHelpers.GetWireType(requestParameters[i].Type));
             }
 
             sb.AppendLine($"                    var args = serializer.Deserialize<({tupleTypes})>(payload);");
@@ -182,7 +183,7 @@ internal static class DispatcherGenerator
             }
         }
 
-        var call = $"{receiver}.{method.Name}({argList})";
+        var call = $"(({method.ExplicitImplementationType}){receiver}).{method.Name}({argList})";
 
         switch (method.ReturnKind)
         {

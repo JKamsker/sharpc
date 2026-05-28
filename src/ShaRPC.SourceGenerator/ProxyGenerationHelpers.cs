@@ -60,6 +60,14 @@ internal static class ProxyGenerationHelpers
         return requestParameters;
     }
 
+    public static string GetWireType(string type) =>
+        type == "dynamic" ? "global::System.Object" : type;
+
+    public static string GetWireArgument(ParameterModel parameter) =>
+        parameter.Type == "dynamic"
+            ? "(global::System.Object)" + parameter.Name
+            : parameter.Name;
+
     public static string BuildSubProxyTypeName(string qualifiedInterfaceName)
     {
         const string globalPrefix = "global::";
@@ -81,7 +89,11 @@ internal static class ProxyGenerationHelpers
         var unescapedName = IdentifierHelpers.UnescapeIdentifier(methodName);
         return unescapedName == proxyName ||
             unescapedName == "_client" ||
-            unescapedName == "_instanceId";
+            unescapedName == "_instanceId" ||
+            unescapedName == "Equals" ||
+            unescapedName == "GetHashCode" ||
+            unescapedName == "GetType" ||
+            unescapedName == "ToString";
     }
 
     public static string UniqueGeneratedLocalName(

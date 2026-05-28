@@ -6,98 +6,24 @@ using Microsoft.CodeAnalysis.CSharp;
 
 namespace ShaRPC.SourceGenerator.Tests;
 
-public class CanonicalSignatureTests
+public class CanonicalSignatureEdgeTests
 {
     [Fact]
-    public void InheritedGenericMethods_WithDifferentTypeParameterNames_DeduplicateBySignature()
+    public void InheritedDynamicAndObjectMethods_DeduplicateBySignature()
     {
         const string source = """
             using ShaRPC.Core.Attributes;
 
-            namespace Regress.CanonicalSignatures
+            namespace Regress.CanonicalDynamicSignatures
             {
                 public interface ILeft
                 {
-                    void Echo<T>(T value);
+                    void M(dynamic value);
                 }
 
                 public interface IRight
                 {
-                    void Echo<U>(U value);
-                }
-
-                [ShaRpcService]
-                public interface ICombined : ILeft, IRight
-                {
-                }
-            }
-            """;
-
-        var (final, runResult) = Run(source);
-        AssertCompiles(final);
-
-        runResult.Diagnostics.Where(d => d.Id == "SHARPC002").Should().ContainSingle();
-        var proxy = runResult.Results.Single().GeneratedSources
-            .Single(g => g.HintName.EndsWith("ICombined.ShaRpcProxy.g.cs"))
-            .SourceText.ToString();
-        CountOccurrences(proxy, "Echo<T>").Should().Be(1);
-    }
-
-    [Fact]
-    public void InheritedGenericMethods_WithDifferentConstraints_RejectService()
-    {
-        const string source = """
-            using ShaRPC.Core.Attributes;
-
-            namespace Regress.CanonicalConstraintSignatures
-            {
-                public interface ILeft
-                {
-                    void Echo<T>(T value) where T : class;
-                }
-
-                public interface IRight
-                {
-                    void Echo<U>(U value) where U : struct;
-                }
-
-                [ShaRpcService]
-                public interface ICombined : ILeft, IRight
-                {
-                }
-            }
-            """;
-
-        var compilation = GeneratorTestHelper.CreateCompilation(source);
-        var driver = GeneratorTestHelper.CreateDriver().RunGenerators(compilation);
-        var runResult = driver.GetRunResult();
-
-        runResult.Diagnostics.Should().Contain(d => d.Id == "SHARPC003" &&
-            d.GetMessage().Contains("incompatible generic constraints"));
-        runResult.Results.Single().GeneratedSources
-            .Should().NotContain(g => g.HintName.Contains("ICombined."));
-    }
-
-    [Fact]
-    public void InheritedGenericMethods_WithEquivalentRecursiveConstraints_Deduplicate()
-    {
-        const string source = """
-            using ShaRPC.Core.Attributes;
-
-            namespace Regress.CanonicalRecursiveConstraintSignatures
-            {
-                public interface IFace<T>
-                {
-                }
-
-                public interface ILeft
-                {
-                    void Echo<T>(T value) where T : IFace<T>;
-                }
-
-                public interface IRight
-                {
-                    void Echo<U>(U value) where U : IFace<U>;
+                    void M(object value);
                 }
 
                 [ShaRpcService]
@@ -111,31 +37,64 @@ public class CanonicalSignatureTests
         AssertCompiles(final);
 
         runResult.Diagnostics.Should().NotContain(d => d.Id == "SHARPC003");
-        runResult.Diagnostics.Where(d => d.Id == "SHARPC002").Should().ContainSingle();
-        var proxy = runResult.Results.Single().GeneratedSources
-            .Single(g => g.HintName.EndsWith("ICombined.ShaRpcProxy.g.cs"))
-            .SourceText.ToString();
-        CountOccurrences(proxy, "Echo<T>").Should().Be(1);
     }
 
     [Fact]
-    public void AsyncSiblingProjection_IgnoresTupleElementNamesForCollisionKeys()
+    public void InheritedRefOutMethods_RejectServiceInsteadOfEmittingDuplicateStubs()
     {
         const string source = """
             using ShaRPC.Core.Attributes;
-            using System.Threading;
-            using System.Threading.Tasks;
 
-            namespace Regress.CanonicalTupleSignatures
+            namespace Regress.CanonicalRefOutSignatures
             {
                 public interface ILeft
                 {
-                    int Echo((int A, int B) value);
+                    void M(ref int value);
                 }
 
                 public interface IRight
                 {
-                    Task<int> EchoAsync((int X, int Y) value, CancellationToken ct = default);
+                    void M(out int value);
+                }
+
+                [ShaRpcService]
+                public interface ICombined : ILeft, IRight
+                {
+                }
+            }
+            """;
+
+        var (_, runResult) = Run(source);
+
+        runResult.Diagnostics.Should().Contain(d => d.Id == "SHARPC003" &&
+            d.GetMessage().Contains("incompatible parameter ref kinds"));
+        runResult.Results.Single().GeneratedSources
+            .Should().NotContain(g => g.HintName.Contains("ICombined."));
+    }
+
+    [Fact]
+    public void InheritedNestedConstructedTypes_DoNotCollapseDistinctOverloads()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+
+            namespace Regress.CanonicalNestedConstructedSignatures
+            {
+                public sealed class Outer<T>
+                {
+                    public sealed class Inner
+                    {
+                    }
+                }
+
+                public interface ILeft
+                {
+                    void Take(Outer<int>.Inner value);
+                }
+
+                public interface IRight
+                {
+                    void Take(Outer<string>.Inner value);
                 }
 
                 [ShaRpcService]
@@ -148,12 +107,11 @@ public class CanonicalSignatureTests
         var (final, runResult) = Run(source);
         AssertCompiles(final);
 
-        runResult.Diagnostics.Should().Contain(d => d.Id == "SHARPC004" &&
-            d.GetMessage().Contains("EchoAsync"));
-        var asyncInterface = runResult.Results.Single().GeneratedSources
-            .Single(g => g.HintName.EndsWith("ICombined.ShaRpcAsync.g.cs"))
+        runResult.Diagnostics.Where(d => d.Id == "SHARPC002").Should().HaveCount(2);
+        var proxy = runResult.Results.Single().GeneratedSources
+            .Single(g => g.HintName.EndsWith("ICombined.ShaRpcProxy.g.cs"))
             .SourceText.ToString();
-        CountOccurrences(asyncInterface, "EchoAsync").Should().Be(1);
+        CountOccurrences(proxy, "Take(").Should().Be(2);
     }
 
     private static int CountOccurrences(string text, string value)

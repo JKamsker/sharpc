@@ -47,6 +47,7 @@ internal sealed record ServiceModel(
 /// </summary>
 internal sealed record MethodModel(
     string Name,
+    string ExplicitImplementationType,
     string RpcName,
     MethodReturnKind ReturnKind,
     string? UnwrappedReturnType,

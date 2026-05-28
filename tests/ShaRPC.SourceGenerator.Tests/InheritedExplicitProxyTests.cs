@@ -1,0 +1,97 @@
+using System.IO;
+using System.Linq;
+using FluentAssertions;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+
+namespace ShaRPC.SourceGenerator.Tests;
+
+public class InheritedExplicitProxyTests
+{
+    [Fact]
+    public void InheritedMethodsCollidingWithProxyMembers_UseDeclaringInterface()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+
+            namespace Regress.InheritedExplicitProxy
+            {
+                public interface IBase
+                {
+                    int FooProxy();
+                    int _client();
+                    int _instanceId();
+                }
+
+                [ShaRpcService]
+                public interface IFoo : IBase
+                {
+                }
+            }
+            """;
+
+        var (final, runResult) = Run(source);
+        AssertCompiles(final);
+
+        var proxy = GetProxy(runResult);
+        proxy.Should().Contain("int global::Regress.InheritedExplicitProxy.IBase.FooProxy()");
+        proxy.Should().Contain("int global::Regress.InheritedExplicitProxy.IBase._client()");
+        proxy.Should().Contain("int global::Regress.InheritedExplicitProxy.IBase._instanceId()");
+        proxy.Should().NotContain("global::Regress.InheritedExplicitProxy.IFoo.FooProxy()");
+    }
+
+    [Fact]
+    public void ObjectMemberName_UsesExplicitImplementationWithoutHidingWarning()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System;
+
+            namespace Regress.ObjectMemberProxy
+            {
+                [ShaRpcService]
+                public interface IFoo
+                {
+                    Type GetType();
+                }
+            }
+            """;
+
+        var (final, runResult) = Run(source);
+        using var ms = new MemoryStream();
+        var emit = final.Emit(ms);
+
+        emit.Success.Should().BeTrue(string.Join(
+            "\n",
+            emit.Diagnostics
+                .Where(d => d.Severity == DiagnosticSeverity.Error)
+                .Select(d => d.ToString())));
+        emit.Diagnostics.Should().NotContain(d => d.Id == "CS0108");
+        GetProxy(runResult).Should().Contain(
+            "global::System.Type global::Regress.ObjectMemberProxy.IFoo.GetType()");
+    }
+
+    private static string GetProxy(GeneratorDriverRunResult runResult) =>
+        runResult.Results.Single().GeneratedSources
+            .Single(g => g.HintName.EndsWith("IFoo.ShaRpcProxy.g.cs"))
+            .SourceText.ToString();
+
+    private static (CSharpCompilation Final, GeneratorDriverRunResult RunResult) Run(string source)
+    {
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var driver = GeneratorTestHelper.CreateDriver().RunGenerators(compilation);
+        var runResult = driver.GetRunResult();
+        return (compilation.AddSyntaxTrees(runResult.GeneratedTrees), runResult);
+    }
+
+    private static void AssertCompiles(CSharpCompilation compilation)
+    {
+        using var ms = new MemoryStream();
+        var emit = compilation.Emit(ms);
+        emit.Success.Should().BeTrue(string.Join(
+            "\n",
+            emit.Diagnostics
+                .Where(d => d.Severity == DiagnosticSeverity.Error)
+                .Select(d => d.ToString())));
+    }
+}

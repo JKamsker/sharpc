@@ -66,7 +66,7 @@ internal static class ProxyGenerator
         {
             ct.ThrowIfCancellationRequested();
             sb.AppendLine();
-            GenerateProxyMethod(sb, service, method, proxyName, qualifiedInterface, ct);
+            GenerateProxyMethod(sb, service, method, proxyName, ct);
         }
 
         foreach (var s in siblingMethods.Array)
@@ -91,7 +91,6 @@ internal static class ProxyGenerator
 
         return sb.ToString();
     }
-
     private static string QualifyServiceType(ServiceModel service, string typeName) =>
         IdentifierHelpers.QualifyTypeName(service.Namespace, typeName);
 
@@ -100,7 +99,6 @@ internal static class ProxyGenerator
         ServiceModel service,
         MethodModel method,
         string proxyName,
-        string qualifiedInterface,
         CancellationToken ct)
     {
         var paramList = new StringBuilder();
@@ -114,7 +112,7 @@ internal static class ProxyGenerator
         var ctArg = ProxyGenerationHelpers.GetCancellationTokenArgument(method.Parameters, ct);
         var explicitInterface = ProxyGenerationHelpers.MethodNameRequiresExplicitImplementation(method.Name, proxyName);
         var access = explicitInterface ? string.Empty : "public ";
-        var target = explicitInterface ? qualifiedInterface + "." + method.Name : method.Name;
+        var target = explicitInterface ? method.ExplicitImplementationType + "." + method.Name : method.Name;
 
         sb.AppendLine($"        {access}{unsafeKeyword}{asyncKeyword}{method.ReturnRefKindKeyword}{declaredReturn} {target}{method.TypeParameterList}({paramList}){method.ConstraintClauses}");
         sb.AppendLine("        {");
@@ -149,7 +147,9 @@ internal static class ProxyGenerator
         var hasReturn = NamingHelpers.HasReturnValue(method.ReturnKind);
         var returnType = isSubServiceReturn
             ? "global::ShaRPC.Core.Protocol.ServiceHandle"
-            : method.UnwrappedReturnType;
+            : method.UnwrappedReturnType is null
+                ? null
+                : ProxyGenerationHelpers.GetWireType(method.UnwrappedReturnType);
         var requestParameters = ProxyGenerationHelpers.GetRequestParameters(method.Parameters, ct);
         var svc = service.ServiceName;
         var rpc = method.RpcName;
@@ -178,9 +178,11 @@ internal static class ProxyGenerator
         else if (requestParameters.Count == 1)
         {
             var p = requestParameters[0];
-            typeArgs = hasReturn ? $"<{p.Type}, {returnType}>" : $"<{p.Type}>";
-            callArgs = $"\"{svc}\", \"{rpc}\", {p.Name}, {ctArg}";
-            callArgsInst = $"\"{svc}\", this._instanceId!, \"{rpc}\", {p.Name}, {ctArg}";
+            var wireType = ProxyGenerationHelpers.GetWireType(p.Type);
+            var wireArgument = ProxyGenerationHelpers.GetWireArgument(p);
+            typeArgs = hasReturn ? $"<{wireType}, {returnType}>" : $"<{wireType}>";
+            callArgs = $"\"{svc}\", \"{rpc}\", {wireArgument}, {ctArg}";
+            callArgsInst = $"\"{svc}\", this._instanceId!, \"{rpc}\", {wireArgument}, {ctArg}";
         }
         else
         {
@@ -195,8 +197,8 @@ internal static class ProxyGenerator
                     tupleTypes.Append(", ");
                     tupleValues.Append(", ");
                 }
-                tupleTypes.Append(requestParameters[i].Type);
-                tupleValues.Append(requestParameters[i].Name);
+                tupleTypes.Append(ProxyGenerationHelpers.GetWireType(requestParameters[i].Type));
+                tupleValues.Append(ProxyGenerationHelpers.GetWireArgument(requestParameters[i]));
             }
 
             typeArgs = hasReturn ? $"<({tupleTypes}), {returnType}>" : $"<({tupleTypes})>";

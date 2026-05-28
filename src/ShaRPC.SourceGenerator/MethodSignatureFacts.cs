@@ -13,7 +13,7 @@ internal static class MethodSignatureFacts
         foreach (var parameter in method.Parameters)
         {
             ct.ThrowIfCancellationRequested();
-            parts.Add(parameter.RefKind + ":" + GetCanonicalType(parameter.Type, method, ct));
+            parts.Add(GetCanonicalParameterRefKind(parameter.RefKind) + GetCanonicalType(parameter.Type, method, ct));
         }
 
         return method.Name + "`" + method.Arity + "(" + string.Join(",", parts) + ")";
@@ -36,7 +36,8 @@ internal static class MethodSignatureFacts
                 sb.Append(',');
             }
 
-            sb.Append(parameters[i].RefKindKeyword).Append(parameters[i].SignatureType);
+            sb.Append(GetCanonicalParameterRefKind(parameters[i].RefKindKeyword))
+                .Append(parameters[i].SignatureType);
         }
 
         return sb.Append(')').ToString();
@@ -50,6 +51,11 @@ internal static class MethodSignatureFacts
             typeParameter.TypeParameterKind == TypeParameterKind.Method)
         {
             return "!!" + typeParameter.Ordinal.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        if (type.TypeKind == TypeKind.Dynamic)
+        {
+            return "global::System.Object";
         }
 
         if (type is IArrayTypeSymbol array)
@@ -71,20 +77,7 @@ internal static class MethodSignatureFacts
                 return "(" + string.Join(",", elements) + ")";
             }
 
-            var name = GetMetadataName(named);
-            if (!named.IsGenericType)
-            {
-                return name;
-            }
-
-            var args = new List<string>();
-            foreach (var arg in named.TypeArguments)
-            {
-                ct.ThrowIfCancellationRequested();
-                args.Add(GetCanonicalType(arg, method, ct));
-            }
-
-            return name + "<" + string.Join(",", args) + ">";
+            return GetCanonicalNamedType(named, method, ct);
         }
 
         return type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
@@ -145,17 +138,40 @@ internal static class MethodSignatureFacts
         return true;
     }
 
-    private static string GetMetadataName(INamedTypeSymbol type)
+    private static string GetCanonicalNamedType(
+        INamedTypeSymbol type,
+        IMethodSymbol method,
+        CancellationToken ct)
     {
-        var names = new Stack<string>();
-        for (var current = type; current is not null; current = current.ContainingType)
+        var name = type.ContainingType is null
+            ? GetNamespacePrefix(type) + type.MetadataName
+            : GetCanonicalNamedType(type.ContainingType, method, ct) + "." + type.MetadataName;
+        if (type.TypeArguments.Length == 0)
         {
-            names.Push(current.MetadataName);
+            return name;
         }
 
+        var args = new List<string>();
+        foreach (var arg in type.TypeArguments)
+        {
+            ct.ThrowIfCancellationRequested();
+            args.Add(GetCanonicalType(arg, method, ct));
+        }
+
+        return name + "<" + string.Join(",", args) + ">";
+    }
+
+    private static string GetNamespacePrefix(INamedTypeSymbol type)
+    {
         var prefix = type.ContainingNamespace.IsGlobalNamespace
             ? "global::"
             : "global::" + type.ContainingNamespace.ToDisplayString() + ".";
-        return prefix + string.Join(".", names);
+        return prefix;
     }
+
+    private static string GetCanonicalParameterRefKind(RefKind kind) =>
+        kind == RefKind.None ? string.Empty : "ref ";
+
+    private static string GetCanonicalParameterRefKind(string refKindKeyword) =>
+        string.IsNullOrEmpty(refKindKeyword) ? string.Empty : "ref ";
 }

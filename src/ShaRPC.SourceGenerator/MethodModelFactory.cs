@@ -18,6 +18,7 @@ internal static class MethodModelFactory
         string displayName,
         IMethodSymbol methodSymbol,
         INamedTypeSymbol? cancellationTokenSymbol,
+        RpcTypeValidationCache validationCache,
         List<MethodDiagnostic> methodDiagnostics,
         CancellationToken ct,
         out DiagnosticLocation methodLocation)
@@ -46,7 +47,12 @@ internal static class MethodModelFactory
         SetUnsupported(
             ref unsupportedReason,
             ref unsupportedLocation,
-            RpcTypeValidator.GetUnsupportedSubServicePayloadReason(returnType, returnKind, "return type", ct),
+            RpcTypeValidator.GetUnsupportedSubServicePayloadReason(
+                returnType,
+                returnKind,
+                "return type",
+                ct,
+                validationCache),
             methodLocation);
 
         var parameters = new List<ParameterModel>();
@@ -110,7 +116,11 @@ internal static class MethodModelFactory
             SetUnsupported(
                 ref unsupportedReason,
                 ref unsupportedLocation,
-                RpcTypeValidator.GetUnsupportedSubServicePayloadReason(param.Type, $"parameter '{param.Name}'", ct),
+                RpcTypeValidator.GetUnsupportedSubServicePayloadReason(
+                    param.Type,
+                    $"parameter '{param.Name}'",
+                    ct,
+                    validationCache),
                 parameterLocation);
 
             parameters.Add(new ParameterModel(
@@ -133,6 +143,7 @@ internal static class MethodModelFactory
 
         return new MethodModel(
             Name: IdentifierHelpers.EscapeIdentifier(methodSymbol.Name),
+            ExplicitImplementationType: methodSymbol.ContainingType.ToDisplayString(s_qualifiedFormat),
             RpcName: LiteralHelpers.EscapeStringLiteral(GetConfiguredMethodName(methodSymbol) ?? methodSymbol.Name),
             ReturnKind: returnKind,
             UnwrappedReturnType: unwrappedReturnType,

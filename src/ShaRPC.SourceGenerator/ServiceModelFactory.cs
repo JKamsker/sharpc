@@ -93,6 +93,7 @@ internal static class ServiceModelFactory
         var methodLocations = new List<DiagnosticLocation>();
         var methodDiagnostics = new List<MethodDiagnostic>();
         var seenSignatures = new Dictionary<string, IMethodSymbol>(StringComparer.Ordinal);
+        var validationCache = new RpcTypeValidationCache();
 
         foreach (var methodSymbol in EnumerateMethods(interfaceSymbol, ct))
         {
@@ -106,6 +107,15 @@ internal static class ServiceModelFactory
                     return RejectedService(
                         displayName,
                         $"inherited method '{methodSymbol.Name}' has the same signature as another method but an incompatible return type",
+                        DiagnosticLocationFactory.FromSymbol(methodSymbol),
+                        qualifiedInterfaceName);
+                }
+
+                if (!HasSameParameterRefKinds(existingMethod, methodSymbol))
+                {
+                    return RejectedService(
+                        displayName,
+                        $"inherited method '{methodSymbol.Name}' has the same signature as another method but incompatible parameter ref kinds",
                         DiagnosticLocationFactory.FromSymbol(methodSymbol),
                         qualifiedInterfaceName);
                 }
@@ -127,6 +137,7 @@ internal static class ServiceModelFactory
                 displayName,
                 methodSymbol,
                 cancellationTokenSymbol,
+                validationCache,
                 methodDiagnostics,
                 ct,
                 out var methodLocation);
@@ -236,4 +247,21 @@ internal static class ServiceModelFactory
         left.RefKind == right.RefKind &&
         SymbolEqualityComparer.Default.Equals(left.ReturnType, right.ReturnType);
 
+    private static bool HasSameParameterRefKinds(IMethodSymbol left, IMethodSymbol right)
+    {
+        if (left.Parameters.Length != right.Parameters.Length)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < left.Parameters.Length; i++)
+        {
+            if (left.Parameters[i].RefKind != right.Parameters[i].RefKind)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 }
