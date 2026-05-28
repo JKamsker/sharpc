@@ -1,59 +1,135 @@
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using System.Threading;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace ShaRPC.SourceGenerator;
 
 internal sealed record ExistingTypeIndex(EquatableArray<ExistingTypeInfo> Types)
 {
-    public static ExistingTypeIndex Create(Compilation compilation, CancellationToken ct)
+    public static ExistingTypeIndex Create(ImmutableArray<ExistingTypeInfo> types, CancellationToken ct)
     {
-        var types = new List<ExistingTypeInfo>();
-        CollectNamespaceTypes(compilation.Assembly.GlobalNamespace, types, ct);
-
+        ct.ThrowIfCancellationRequested();
         return new ExistingTypeIndex(types
-            .OrderBy(static type => type.Namespace, System.StringComparer.Ordinal)
-            .ThenBy(static type => type.Name, System.StringComparer.Ordinal)
+            .OrderBy(static type => type, ExistingTypeInfoComparer.Instance)
             .ToEquatableArray());
     }
 
     public ExistingTypeInfo? Find(string @namespace, string name, CancellationToken ct)
     {
-        foreach (var type in Types.Array)
+        var target = new ExistingTypeInfo(@namespace, name, default);
+        var low = 0;
+        var high = Types.Count - 1;
+        while (low <= high)
         {
             ct.ThrowIfCancellationRequested();
 
-            if (type.Namespace == @namespace && type.Name == name)
+            var mid = low + ((high - low) / 2);
+            var comparison = ExistingTypeInfoComparer.Instance.Compare(Types[mid], target);
+            if (comparison == 0)
             {
-                return type;
+                return Types[mid];
+            }
+
+            if (comparison < 0)
+            {
+                low = mid + 1;
+            }
+            else
+            {
+                high = mid - 1;
             }
         }
 
         return null;
     }
 
-    private static void CollectNamespaceTypes(
-        INamespaceSymbol namespaceSymbol,
-        List<ExistingTypeInfo> types,
-        CancellationToken ct)
+    public static ExistingTypeInfo? FromDeclaration(SyntaxNode node)
     {
-        ct.ThrowIfCancellationRequested();
-
-        foreach (var type in namespaceSymbol.GetTypeMembers())
+        if (!TryGetTypeName(node, out var name) || IsNestedInType(node) || IsFileLocal(node))
         {
-            ct.ThrowIfCancellationRequested();
-
-            var ns = type.ContainingNamespace.IsGlobalNamespace
-                ? string.Empty
-                : type.ContainingNamespace.ToDisplayString();
-            types.Add(new ExistingTypeInfo(ns, type.Name, DiagnosticLocationFactory.FromSymbol(type)));
+            return null;
         }
 
-        foreach (var childNamespace in namespaceSymbol.GetNamespaceMembers())
+        return new ExistingTypeInfo(
+            GetNamespace(node),
+            name,
+            DiagnosticLocation.FromLocation(GetNameLocation(node)));
+    }
+
+    private static bool TryGetTypeName(SyntaxNode node, out string name)
+    {
+        switch (node)
         {
-            CollectNamespaceTypes(childNamespace, types, ct);
+            case BaseTypeDeclarationSyntax declaration:
+                name = declaration.Identifier.ValueText;
+                return true;
+            case DelegateDeclarationSyntax declaration:
+                name = declaration.Identifier.ValueText;
+                return true;
+            default:
+                name = string.Empty;
+                return false;
         }
+    }
+
+    private static Location? GetNameLocation(SyntaxNode node) =>
+        node switch
+        {
+            BaseTypeDeclarationSyntax declaration => declaration.Identifier.GetLocation(),
+            DelegateDeclarationSyntax declaration => declaration.Identifier.GetLocation(),
+            _ => null,
+        };
+
+    private static bool IsNestedInType(SyntaxNode node)
+    {
+        for (var parent = node.Parent; parent is not null; parent = parent.Parent)
+        {
+            if (parent is BaseTypeDeclarationSyntax or DelegateDeclarationSyntax)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsFileLocal(SyntaxNode node)
+    {
+        var modifiers = node switch
+        {
+            BaseTypeDeclarationSyntax declaration => declaration.Modifiers,
+            DelegateDeclarationSyntax declaration => declaration.Modifiers,
+            _ => default,
+        };
+
+        foreach (var modifier in modifiers)
+        {
+            if (modifier.IsKind(SyntaxKind.FileKeyword))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string GetNamespace(SyntaxNode node)
+    {
+        var namespaces = new List<string>();
+        for (var parent = node.Parent; parent is not null; parent = parent.Parent)
+        {
+            if (parent is BaseNamespaceDeclarationSyntax namespaceDeclaration)
+            {
+                namespaces.Add(namespaceDeclaration.Name.ToString().Replace("@", string.Empty));
+            }
+        }
+
+        namespaces.Reverse();
+        return string.Join(".", namespaces);
     }
 }
 
@@ -61,3 +137,16 @@ internal readonly record struct ExistingTypeInfo(
     string Namespace,
     string Name,
     DiagnosticLocation Location);
+
+internal sealed class ExistingTypeInfoComparer : IComparer<ExistingTypeInfo>
+{
+    public static ExistingTypeInfoComparer Instance { get; } = new();
+
+    public int Compare(ExistingTypeInfo left, ExistingTypeInfo right)
+    {
+        var ns = string.Compare(left.Namespace, right.Namespace, System.StringComparison.Ordinal);
+        return ns != 0
+            ? ns
+            : string.Compare(left.Name, right.Name, System.StringComparison.Ordinal);
+    }
+}

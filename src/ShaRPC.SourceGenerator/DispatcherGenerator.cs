@@ -111,7 +111,7 @@ internal static class DispatcherGenerator
         foreach (var m in service.Methods.Array)
         {
             ct.ThrowIfCancellationRequested();
-            GenerateDispatchCase(sb, service, m, receiver);
+            GenerateDispatchCase(sb, service, m, receiver, ct);
         }
 
         sb.AppendLine("                default:");
@@ -120,7 +120,12 @@ internal static class DispatcherGenerator
         sb.AppendLine("        }");
     }
 
-    private static void GenerateDispatchCase(StringBuilder sb, ServiceModel service, MethodModel method, string receiver)
+    private static void GenerateDispatchCase(
+        StringBuilder sb,
+        ServiceModel service,
+        MethodModel method,
+        string receiver,
+        CancellationToken ct)
     {
         // Methods whose shape we cannot marshal (ref/in/out parameters) get no switch case;
         // an inbound call for them falls through to the default ShaRpcNotFoundException
@@ -133,7 +138,7 @@ internal static class DispatcherGenerator
         sb.AppendLine($"                case \"{method.RpcName}\":");
         sb.AppendLine("                {");
 
-        var requestParameters = GetRequestParameters(method.Parameters);
+        var requestParameters = GetRequestParameters(method.Parameters, ct);
         if (requestParameters.Count == 1)
         {
             sb.AppendLine($"                    var arg = serializer.Deserialize<{requestParameters[0].Type}>(payload);");
@@ -143,6 +148,8 @@ internal static class DispatcherGenerator
             var tupleTypes = new StringBuilder();
             for (var i = 0; i < requestParameters.Count; i++)
             {
+                ct.ThrowIfCancellationRequested();
+
                 if (i > 0) tupleTypes.Append(", ");
                 tupleTypes.Append(requestParameters[i].Type);
             }
@@ -154,6 +161,8 @@ internal static class DispatcherGenerator
         var requestIndex = 0;
         for (var i = 0; i < method.Parameters.Count; i++)
         {
+            ct.ThrowIfCancellationRequested();
+
             if (i > 0) argList.Append(", ");
 
             var parameter = method.Parameters[i];
@@ -216,11 +225,15 @@ internal static class DispatcherGenerator
         sb.AppendLine("                }");
     }
 
-    private static List<ParameterModel> GetRequestParameters(EquatableArray<ParameterModel> parameters)
+    private static List<ParameterModel> GetRequestParameters(
+        EquatableArray<ParameterModel> parameters,
+        CancellationToken ct)
     {
         var requestParameters = new List<ParameterModel>();
         foreach (var p in parameters.Array)
         {
+            ct.ThrowIfCancellationRequested();
+
             if (!p.IsCancellationToken)
             {
                 requestParameters.Add(p);

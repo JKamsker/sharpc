@@ -100,8 +100,7 @@ internal static class ServiceModelFactory
         {
             ct.ThrowIfCancellationRequested();
 
-            var sigKey = methodSymbol.Name + "`" + methodSymbol.Arity + "(" +
-                string.Join(",", methodSymbol.Parameters.Select(p => p.RefKind + ":" + p.Type.ToDisplayString())) + ")";
+            var sigKey = GetSignatureKey(methodSymbol, ct);
             if (seenSignatures.TryGetValue(sigKey, out var existingMethod))
             {
                 if (!HasSameReturnShape(existingMethod, methodSymbol))
@@ -200,4 +199,16 @@ internal static class ServiceModelFactory
     private static bool HasSameReturnShape(IMethodSymbol left, IMethodSymbol right) =>
         left.RefKind == right.RefKind &&
         SymbolEqualityComparer.Default.Equals(left.ReturnType, right.ReturnType);
+
+    private static string GetSignatureKey(IMethodSymbol methodSymbol, CancellationToken ct)
+    {
+        var parts = new List<string>();
+        foreach (var parameter in methodSymbol.Parameters)
+        {
+            ct.ThrowIfCancellationRequested();
+            parts.Add(parameter.RefKind + ":" + parameter.Type.ToDisplayString());
+        }
+
+        return methodSymbol.Name + "`" + methodSymbol.Arity + "(" + string.Join(",", parts) + ")";
+    }
 }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Immutable;
 using System.Linq;
 using System.Text;
 using System.Threading;
@@ -57,8 +58,17 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
                 transform: static (ctx, ct) => ServiceModelFactory.GetServiceResult(ctx, ct))
             .WithTrackingName("RawServiceResults");
 
-        var existingTypes = context.CompilationProvider
-            .Select(static (compilation, ct) => ExistingTypeIndex.Create(compilation, ct))
+        var existingTypeDeclarations = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: static (node, _) => node is BaseTypeDeclarationSyntax or DelegateDeclarationSyntax,
+                transform: static (ctx, _) => ExistingTypeIndex.FromDeclaration(ctx.Node))
+            .Where(static type => type is not null)
+            .Select(static (type, _) => type!.Value)
+            .WithTrackingName("ExistingTypeDeclarations");
+
+        var existingTypes = existingTypeDeclarations
+            .Collect()
+            .Select(static (types, ct) => ExistingTypeIndex.Create(types, ct))
             .WithTrackingName("ExistingTypes");
 
         results = results
@@ -222,11 +232,7 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
 
         var allServices = models
             .Collect()
-            .Select(static (arr, _) => arr
-                .OrderBy(static service => service.Namespace, StringComparer.Ordinal)
-                .ThenBy(static service => service.InterfaceName, StringComparer.Ordinal)
-                .ThenBy(static service => service.ServiceName, StringComparer.Ordinal)
-                .ToEquatableArray())
+            .Select(static (arr, ct) => SortServices(arr, ct))
             .WithTrackingName("AllServices");
 
         context.RegisterSourceOutput(allServices, static (spc, services) =>
@@ -258,4 +264,27 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
         });
     }
 
+    private static EquatableArray<ServiceModel> SortServices(
+        ImmutableArray<ServiceModel> services,
+        CancellationToken ct)
+    {
+        var ordered = services.ToList();
+        ordered.Sort((left, right) =>
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var ns = string.Compare(left.Namespace, right.Namespace, StringComparison.Ordinal);
+            if (ns != 0)
+            {
+                return ns;
+            }
+
+            var interfaceName = string.Compare(left.InterfaceName, right.InterfaceName, StringComparison.Ordinal);
+            return interfaceName != 0
+                ? interfaceName
+                : string.Compare(left.ServiceName, right.ServiceName, StringComparison.Ordinal);
+        });
+
+        return ordered.ToEquatableArray();
+    }
 }

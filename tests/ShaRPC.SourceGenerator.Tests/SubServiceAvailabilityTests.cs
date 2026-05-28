@@ -60,4 +60,56 @@ public class SubServiceAvailabilityTests
                 .Where(d => d.Severity == DiagnosticSeverity.Error)
                 .Select(d => d.ToString())));
     }
+
+    [Fact]
+    public void RootMethodReturningSubServiceRejectedByGeneratedTypeCollision_BecomesUnsupportedStub()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading.Tasks;
+
+            namespace Regress.SubServiceAvailability
+            {
+                public sealed class SubProxy
+                {
+                }
+
+                [ShaRpcService]
+                public interface ISub
+                {
+                    Task<int> CountAsync();
+                }
+
+                [ShaRpcService]
+                public interface IRoot
+                {
+                    Task<ISub> GetSubAsync();
+                }
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var driver = GeneratorTestHelper.CreateDriver().RunGenerators(compilation);
+        var runResult = driver.GetRunResult();
+        var finalCompilation = ((CSharpCompilation)compilation).AddSyntaxTrees(runResult.GeneratedTrees);
+
+        runResult.Diagnostics.Should().Contain(d => d.Id == "SHARPC003" &&
+            d.GetMessage().Contains("generated proxy type 'SubProxy' would collide"));
+        runResult.Diagnostics.Should().Contain(d => d.Id == "SHARPC002" &&
+            d.GetMessage().Contains("cannot be proxied because that service was not generated"));
+
+        var proxy = runResult.Results.Single().GeneratedSources
+            .Single(g => g.HintName.EndsWith("IRoot.ShaRpcProxy.g.cs"))
+            .SourceText.ToString();
+        proxy.Should().Contain("throw new global::System.NotSupportedException");
+        proxy.Should().NotContain("new global::Regress.SubServiceAvailability.SubProxy");
+
+        using var ms = new MemoryStream();
+        var emit = finalCompilation.Emit(ms);
+        emit.Success.Should().BeTrue(string.Join(
+            "\n",
+            emit.Diagnostics
+                .Where(d => d.Severity == DiagnosticSeverity.Error)
+                .Select(d => d.ToString())));
+    }
 }

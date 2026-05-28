@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using System.Threading;
 
 namespace ShaRPC.SourceGenerator;
@@ -21,18 +22,37 @@ internal sealed record RejectedServiceIndex(EquatableArray<string> QualifiedInte
             }
         }
 
-        return new RejectedServiceIndex(names.ToImmutable().ToEquatableArray());
+        return new RejectedServiceIndex(names
+            .ToImmutable()
+            .OrderBy(static name => name, System.StringComparer.Ordinal)
+            .ToEquatableArray());
     }
 
     public bool Contains(string qualifiedInterfaceName, CancellationToken ct)
     {
-        foreach (var name in QualifiedInterfaceNames.Array)
+        var low = 0;
+        var high = QualifiedInterfaceNames.Count - 1;
+        while (low <= high)
         {
             ct.ThrowIfCancellationRequested();
 
-            if (name == qualifiedInterfaceName)
+            var mid = low + ((high - low) / 2);
+            var comparison = string.Compare(
+                QualifiedInterfaceNames[mid],
+                qualifiedInterfaceName,
+                System.StringComparison.Ordinal);
+            if (comparison == 0)
             {
                 return true;
+            }
+
+            if (comparison < 0)
+            {
+                low = mid + 1;
+            }
+            else
+            {
+                high = mid - 1;
             }
         }
 

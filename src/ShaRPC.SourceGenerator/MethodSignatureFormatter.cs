@@ -1,5 +1,5 @@
 using System.Collections.Generic;
-using System.Linq;
+using System.Threading;
 using Microsoft.CodeAnalysis;
 
 namespace ShaRPC.SourceGenerator;
@@ -11,17 +11,24 @@ internal static class MethodSignatureFormatter
             SymbolDisplayFormat.FullyQualifiedFormat.MiscellaneousOptions |
             SymbolDisplayMiscellaneousOptions.EscapeKeywordIdentifiers);
 
-    public static string GetTypeParameterList(IMethodSymbol method)
+    public static string GetTypeParameterList(IMethodSymbol method, CancellationToken ct)
     {
         if (!method.IsGenericMethod)
         {
             return string.Empty;
         }
 
-        return "<" + string.Join(", ", method.TypeParameters.Select(p => IdentifierHelpers.EscapeIdentifier(p.Name))) + ">";
+        var names = new List<string>();
+        foreach (var parameter in method.TypeParameters)
+        {
+            ct.ThrowIfCancellationRequested();
+            names.Add(IdentifierHelpers.EscapeIdentifier(parameter.Name));
+        }
+
+        return "<" + string.Join(", ", names) + ">";
     }
 
-    public static string GetConstraintClauses(IMethodSymbol method)
+    public static string GetConstraintClauses(IMethodSymbol method, CancellationToken ct)
     {
         if (!method.IsGenericMethod)
         {
@@ -31,6 +38,8 @@ internal static class MethodSignatureFormatter
         var clauses = new List<string>();
         foreach (var typeParameter in method.TypeParameters)
         {
+            ct.ThrowIfCancellationRequested();
+
             var constraints = new List<string>();
             if (typeParameter.HasReferenceTypeConstraint)
             {
@@ -51,6 +60,7 @@ internal static class MethodSignatureFormatter
 
             foreach (var constraintType in typeParameter.ConstraintTypes)
             {
+                ct.ThrowIfCancellationRequested();
                 constraints.Add(constraintType.ToDisplayString(s_qualifiedFormat));
             }
 

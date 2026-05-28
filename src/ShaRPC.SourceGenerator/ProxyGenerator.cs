@@ -66,7 +66,7 @@ internal static class ProxyGenerator
         {
             ct.ThrowIfCancellationRequested();
             sb.AppendLine();
-            GenerateProxyMethod(sb, service, method);
+            GenerateProxyMethod(sb, service, method, ct);
         }
 
         // Emit the extra non-blocking entry points required to satisfy the async sibling
@@ -82,7 +82,7 @@ internal static class ProxyGenerator
             }
 
             sb.AppendLine();
-            GenerateAsyncSiblingMethod(sb, service, s);
+            GenerateAsyncSiblingMethod(sb, service, s, ct);
         }
 
         sb.AppendLine("    }");
@@ -99,10 +99,14 @@ internal static class ProxyGenerator
     private static string QualifyServiceType(ServiceModel service, string typeName) =>
         IdentifierHelpers.QualifyTypeName(service.Namespace, typeName);
 
-    private static void GenerateProxyMethod(StringBuilder sb, ServiceModel service, MethodModel method)
+    private static void GenerateProxyMethod(
+        StringBuilder sb,
+        ServiceModel service,
+        MethodModel method,
+        CancellationToken ct)
     {
         var paramList = new StringBuilder();
-        ProxyGenerationHelpers.AppendParameterList(paramList, method.Parameters);
+        ProxyGenerationHelpers.AppendParameterList(paramList, method.Parameters, ct);
 
         var declaredReturn = NamingHelpers.GetDeclaredReturnTypeText(method.ReturnKind, method.UnwrappedReturnType);
         var isAsync = NamingHelpers.IsAsync(method.ReturnKind);
@@ -112,7 +116,7 @@ internal static class ProxyGenerator
         // out-parameters are considered definitely assigned by the C# compiler.
         var asyncKeyword = (isAsync && method.UnsupportedReason is null) ? "async " : string.Empty;
         var unsafeKeyword = method.RequiresUnsafeSignature ? "unsafe " : string.Empty;
-        var ctArg = ProxyGenerationHelpers.GetCancellationTokenArgument(method.Parameters);
+        var ctArg = ProxyGenerationHelpers.GetCancellationTokenArgument(method.Parameters, ct);
 
         sb.AppendLine($"        public {unsafeKeyword}{asyncKeyword}{method.ReturnRefKindKeyword}{declaredReturn} {method.Name}{method.TypeParameterList}({paramList}){method.ConstraintClauses}");
         sb.AppendLine("        {");
@@ -123,8 +127,8 @@ internal static class ProxyGenerator
         }
         else
         {
-            var invocation = BuildClientInvocation(service, method, ctArg);
-            EmitInvocation(sb, method, invocation);
+            var invocation = BuildClientInvocation(service, method, ctArg, ct);
+            EmitInvocation(sb, method, invocation, ct);
         }
 
         sb.AppendLine("        }");
@@ -137,14 +141,18 @@ internal static class ProxyGenerator
     /// expression branches on <c>_instanceId</c> so the same proxy class can serve both
     /// the top-level and the nested-instance call paths.
     /// </summary>
-    private static string BuildClientInvocation(ServiceModel service, MethodModel method, string ctArg)
+    private static string BuildClientInvocation(
+        ServiceModel service,
+        MethodModel method,
+        string ctArg,
+        CancellationToken ct)
     {
         var isSubServiceReturn = NamingHelpers.IsSubServiceReturn(method.ReturnKind);
         var hasReturn = NamingHelpers.HasReturnValue(method.ReturnKind);
         var returnType = isSubServiceReturn
             ? "global::ShaRPC.Core.Protocol.ServiceHandle"
             : method.UnwrappedReturnType;
-        var requestParameters = ProxyGenerationHelpers.GetRequestParameters(method.Parameters);
+        var requestParameters = ProxyGenerationHelpers.GetRequestParameters(method.Parameters, ct);
         var svc = service.ServiceName;
         var rpc = method.RpcName;
 
@@ -182,6 +190,8 @@ internal static class ProxyGenerator
             var tupleValues = new StringBuilder();
             for (var i = 0; i < requestParameters.Count; i++)
             {
+                ct.ThrowIfCancellationRequested();
+
                 if (i > 0)
                 {
                     tupleTypes.Append(", ");
@@ -204,10 +214,14 @@ internal static class ProxyGenerator
     /// Reuses the underlying RPC call site of the original method (same service, same
     /// wire method name) but returns a Task / Task&lt;T&gt; so the caller never blocks.
     /// </summary>
-    private static void GenerateAsyncSiblingMethod(StringBuilder sb, ServiceModel service, AsyncSiblingMethod s)
+    private static void GenerateAsyncSiblingMethod(
+        StringBuilder sb,
+        ServiceModel service,
+        AsyncSiblingMethod s,
+        CancellationToken ct)
     {
         var paramList = new StringBuilder();
-        ProxyGenerationHelpers.AppendParameterList(paramList, s.Parameters);
+        ProxyGenerationHelpers.AppendParameterList(paramList, s.Parameters, ct);
 
         var declaredReturn = NamingHelpers.GetDeclaredReturnTypeText(
             s.SiblingReturnKind, s.Source.UnwrappedReturnType);
@@ -226,13 +240,18 @@ internal static class ProxyGenerator
         var invocation = BuildClientInvocation(
             service,
             virtualSource,
-            ProxyGenerationHelpers.GetCancellationTokenArgument(s.Parameters));
-        EmitInvocation(sb, virtualSource, invocation);
+            ProxyGenerationHelpers.GetCancellationTokenArgument(s.Parameters, ct),
+            ct);
+        EmitInvocation(sb, virtualSource, invocation, ct);
 
         sb.AppendLine("        }");
     }
 
-    private static void EmitInvocation(StringBuilder sb, MethodModel method, string invocation)
+    private static void EmitInvocation(
+        StringBuilder sb,
+        MethodModel method,
+        string invocation,
+        CancellationToken ct)
     {
         switch (method.ReturnKind)
         {
@@ -264,7 +283,8 @@ internal static class ProxyGenerator
                 var subProxyType = ProxyGenerationHelpers.BuildSubProxyTypeName(info.QualifiedInterfaceName);
                 var handleName = ProxyGenerationHelpers.UniqueGeneratedLocalName(
                     method.Parameters,
-                    "__sharpc_handle");
+                    "__sharpc_handle",
+                    ct);
                 sb.AppendLine($"            var {handleName} = await {invocation};");
                 sb.AppendLine($"            return new {subProxyType}(this._client, {handleName}.InstanceId);");
                 break;

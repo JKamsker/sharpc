@@ -25,8 +25,8 @@ internal static class MethodModelFactory
 
         var returnType = methodSymbol.ReturnType;
         var returnKind = ReturnTypeClassifier.Classify(returnType, ct, out var unwrappedReturnType, out var subService);
-        var typeParameterList = MethodSignatureFormatter.GetTypeParameterList(methodSymbol);
-        var constraintClauses = MethodSignatureFormatter.GetConstraintClauses(methodSymbol);
+        var typeParameterList = MethodSignatureFormatter.GetTypeParameterList(methodSymbol, ct);
+        var constraintClauses = MethodSignatureFormatter.GetConstraintClauses(methodSymbol, ct);
         string? unsupportedReason = null;
         methodLocation = DiagnosticLocationFactory.FromSymbol(methodSymbol);
         var unsupportedLocation = methodLocation;
@@ -60,7 +60,7 @@ internal static class MethodModelFactory
             SetUnsupported(
                 ref unsupportedReason,
                 ref unsupportedLocation,
-                $"return value uses an unsupported pass-by-reference kind '{methodSymbol.RefKind.ToString().ToLowerInvariant()}'",
+                $"return value uses an unsupported pass-by-reference kind '{RefKindDisplay(methodSymbol.RefKind, isReturn: true)}'",
                 methodLocation);
         }
 
@@ -92,7 +92,7 @@ internal static class MethodModelFactory
                 SetUnsupported(
                     ref unsupportedReason,
                     ref unsupportedLocation,
-                    $"parameter '{param.Name}' uses an unsupported pass-by-reference kind '{param.RefKind.ToString().ToLowerInvariant()}'",
+                    $"parameter '{param.Name}' uses an unsupported pass-by-reference kind '{RefKindDisplay(param.RefKind, isReturn: false)}'",
                     parameterLocation);
             }
 
@@ -105,7 +105,7 @@ internal static class MethodModelFactory
             parameters.Add(new ParameterModel(
                 IdentifierHelpers.EscapeIdentifier(param.Name),
                 param.Type.ToDisplayString(s_qualifiedFormat),
-                RefKindKeyword(param.RefKind),
+                ParameterRefKindKeyword(param.RefKind),
                 isCancellationToken,
                 param.HasExplicitDefaultValue));
         }
@@ -124,7 +124,7 @@ internal static class MethodModelFactory
             RpcName: LiteralHelpers.EscapeStringLiteral(GetConfiguredMethodName(methodSymbol) ?? methodSymbol.Name),
             ReturnKind: returnKind,
             UnwrappedReturnType: unwrappedReturnType,
-            ReturnRefKindKeyword: RefKindKeyword(methodSymbol.RefKind),
+            ReturnRefKindKeyword: ReturnRefKindKeyword(methodSymbol.RefKind),
             HasCancellationToken: hasCancellationToken,
             Parameters: parameters.ToEquatableArray(),
             RequiresUnsafeSignature: requiresUnsafeSignature,
@@ -155,13 +155,34 @@ internal static class MethodModelFactory
         return null;
     }
 
-    private static string RefKindKeyword(RefKind kind) => kind switch
+    private static string ParameterRefKindKeyword(RefKind kind) =>
+        kind.ToString() switch
+        {
+            "Ref" => "ref ",
+            "In" => "in ",
+            "Out" => "out ",
+            "RefReadOnly" => "ref readonly ",
+            "RefReadOnlyParameter" => "ref readonly ",
+            _ => string.Empty,
+        };
+
+    private static string ReturnRefKindKeyword(RefKind kind) =>
+        kind.ToString() switch
+        {
+            "Ref" => "ref ",
+            "In" => "ref readonly ",
+            "RefReadOnly" => "ref readonly ",
+            "RefReadOnlyParameter" => "ref readonly ",
+            _ => string.Empty,
+        };
+
+    private static string RefKindDisplay(RefKind kind, bool isReturn)
     {
-        RefKind.Ref => "ref ",
-        RefKind.In => "in ",
-        RefKind.Out => "out ",
-        _ => string.Empty,
-    };
+        var text = kind.ToString();
+        return isReturn && text == "In"
+            ? "ref readonly"
+            : text.ToLowerInvariant();
+    }
 
     private static void SetUnsupported(
         ref string? unsupportedReason,

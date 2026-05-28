@@ -14,6 +14,9 @@ namespace ShaRPC.SourceGenerator.Tests;
 /// </summary>
 internal static class GeneratorTestHelper
 {
+    private static readonly CSharpParseOptions s_parseOptions =
+        CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Latest);
+
     // System.Reflection.DispatchProxy caches its generated proxies by interface type, and
     // the type identity is partly the defining assembly name. When several in-memory test
     // compilations all share the name "compilation", the cache returns a proxy that was
@@ -29,7 +32,7 @@ internal static class GeneratorTestHelper
     /// </summary>
     public static CSharpCompilation CreateCompilation(params string[] sources)
     {
-        var trees = sources.Select(s => CSharpSyntaxTree.ParseText(s)).ToArray();
+        var trees = sources.Select(s => CSharpSyntaxTree.ParseText(s, s_parseOptions)).ToArray();
 
         var references = new List<MetadataReference>(Basic.Reference.Assemblies.Net80.References.All)
         {

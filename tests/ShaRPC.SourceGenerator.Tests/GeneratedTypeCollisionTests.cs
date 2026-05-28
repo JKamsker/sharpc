@@ -36,6 +36,34 @@ public class GeneratedTypeCollisionTests
     }
 
     [Fact]
+    public void FileLocalGeneratedTypeNameMatch_DoesNotProduceCollision()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+
+            namespace Regress.GeneratedTypeCollision
+            {
+                file sealed class FooProxy
+                {
+                }
+
+                [ShaRpcService]
+                public interface IFoo
+                {
+                    int Bar();
+                }
+            }
+            """;
+
+        var runResult = Run(source);
+
+        runResult.Diagnostics.Should().NotContain(d => d.Id == "SHARPC003" &&
+            d.GetMessage().Contains("FooProxy"));
+        runResult.Results.Single().GeneratedSources
+            .Should().Contain(g => g.HintName.Contains("IFoo.ShaRpcProxy.g.cs"));
+    }
+
+    [Fact]
     public void ExistingDispatcherType_ProducesSHARPC003_AndServiceIsSkipped()
     {
         const string source = """
@@ -57,8 +85,39 @@ public class GeneratedTypeCollisionTests
 
         var runResult = Run(source);
 
-        runResult.Diagnostics.Should().Contain(d => d.Id == "SHARPC003" &&
-            d.GetMessage().Contains("generated dispatcher type 'FooDispatcher' would collide"));
+        var diagnostic = runResult.Diagnostics.Single(d => d.Id == "SHARPC003");
+        diagnostic.GetMessage().Should().Contain("generated dispatcher type 'FooDispatcher' would collide");
+        DiagnosticText(source, diagnostic).Should().Contain("FooDispatcher");
+        runResult.Results.Single().GeneratedSources
+            .Should().NotContain(g => g.HintName.Contains("IFoo."));
+    }
+
+    [Fact]
+    public void ExistingAsyncSiblingInterface_ProducesSHARPC003_AtCollidingType()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+
+            namespace Regress.GeneratedTypeCollision
+            {
+                public interface IFooAsync
+                {
+                }
+
+                [ShaRpcService]
+                public interface IFoo
+                {
+                    int Bar();
+                }
+            }
+            """;
+
+        var runResult = Run(source);
+
+        var diagnostic = runResult.Diagnostics.Single(d => d.Id == "SHARPC003");
+        diagnostic.GetMessage().Should().Contain(
+            "generated async sibling interface 'IFooAsync' would collide");
+        DiagnosticText(source, diagnostic).Should().Contain("IFooAsync");
         runResult.Results.Single().GeneratedSources
             .Should().NotContain(g => g.HintName.Contains("IFoo."));
     }

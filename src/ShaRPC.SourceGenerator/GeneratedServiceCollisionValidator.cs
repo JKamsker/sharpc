@@ -1,9 +1,11 @@
+using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using System.Threading;
 
 namespace ShaRPC.SourceGenerator;
 
-internal sealed record GeneratedServiceNameIndex(EquatableArray<GeneratedServiceNameEntry> Entries)
+internal sealed record GeneratedServiceNameIndex(EquatableArray<GeneratedServiceNameEntry> DuplicateEntries)
 {
     public static GeneratedServiceNameIndex Create(
         ImmutableArray<ServiceResult> results,
@@ -22,23 +24,30 @@ internal sealed record GeneratedServiceNameIndex(EquatableArray<GeneratedService
             entries.Add(new GeneratedServiceNameEntry(
                 result.Model.Namespace,
                 result.Model.InterfaceName,
-                NamingHelpers.StripInterfacePrefix(result.Model.InterfaceName),
-                result.ServiceLocation));
+                NamingHelpers.StripInterfacePrefix(result.Model.InterfaceName)));
         }
 
-        return new GeneratedServiceNameIndex(entries.ToImmutable().ToEquatableArray());
+        return new GeneratedServiceNameIndex(GetDuplicates(entries.ToImmutable(), ct));
     }
 
     public GeneratedServiceNameEntry? FindCollision(ServiceModel model, CancellationToken ct)
     {
-        var generatedName = NamingHelpers.StripInterfacePrefix(model.InterfaceName);
-        foreach (var entry in Entries.Array)
+        var target = new GeneratedServiceNameEntry(
+            model.Namespace,
+            model.InterfaceName,
+            NamingHelpers.StripInterfacePrefix(model.InterfaceName));
+        var start = LowerBound(target, ct);
+        for (var i = start; i < DuplicateEntries.Count; i++)
         {
             ct.ThrowIfCancellationRequested();
 
-            if (entry.Namespace == model.Namespace &&
-                entry.GeneratedName == generatedName &&
-                entry.InterfaceName != model.InterfaceName)
+            var entry = DuplicateEntries[i];
+            if (GeneratedServiceNameEntryComparer.CompareKey(entry, target) != 0)
+            {
+                break;
+            }
+
+            if (entry.InterfaceName != model.InterfaceName)
             {
                 return entry;
             }
@@ -46,13 +55,88 @@ internal sealed record GeneratedServiceNameIndex(EquatableArray<GeneratedService
 
         return null;
     }
+
+    private static EquatableArray<GeneratedServiceNameEntry> GetDuplicates(
+        ImmutableArray<GeneratedServiceNameEntry> entries,
+        CancellationToken ct)
+    {
+        var ordered = entries
+            .OrderBy(static entry => entry, GeneratedServiceNameEntryComparer.Instance)
+            .ToArray();
+        var duplicates = new List<GeneratedServiceNameEntry>();
+        for (var i = 0; i < ordered.Length;)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var start = i;
+            i++;
+            while (i < ordered.Length &&
+                GeneratedServiceNameEntryComparer.CompareKey(ordered[start], ordered[i]) == 0)
+            {
+                ct.ThrowIfCancellationRequested();
+                i++;
+            }
+
+            if (i - start > 1)
+            {
+                for (var j = start; j < i; j++)
+                {
+                    duplicates.Add(ordered[j]);
+                }
+            }
+        }
+
+        return duplicates.ToEquatableArray();
+    }
+
+    private int LowerBound(GeneratedServiceNameEntry target, CancellationToken ct)
+    {
+        var low = 0;
+        var high = DuplicateEntries.Count;
+        while (low < high)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var mid = low + ((high - low) / 2);
+            if (GeneratedServiceNameEntryComparer.CompareKey(DuplicateEntries[mid], target) < 0)
+            {
+                low = mid + 1;
+            }
+            else
+            {
+                high = mid;
+            }
+        }
+
+        return low;
+    }
 }
 
 internal readonly record struct GeneratedServiceNameEntry(
     string Namespace,
     string InterfaceName,
-    string GeneratedName,
-    DiagnosticLocation Location);
+    string GeneratedName);
+
+internal sealed class GeneratedServiceNameEntryComparer : IComparer<GeneratedServiceNameEntry>
+{
+    public static GeneratedServiceNameEntryComparer Instance { get; } = new();
+
+    public int Compare(GeneratedServiceNameEntry left, GeneratedServiceNameEntry right)
+    {
+        var key = CompareKey(left, right);
+        return key != 0
+            ? key
+            : string.Compare(left.InterfaceName, right.InterfaceName, System.StringComparison.Ordinal);
+    }
+
+    public static int CompareKey(GeneratedServiceNameEntry left, GeneratedServiceNameEntry right)
+    {
+        var ns = string.Compare(left.Namespace, right.Namespace, System.StringComparison.Ordinal);
+        return ns != 0
+            ? ns
+            : string.Compare(left.GeneratedName, right.GeneratedName, System.StringComparison.Ordinal);
+    }
+}
 
 internal static class GeneratedServiceCollisionValidator
 {

@@ -51,7 +51,7 @@ internal static class AsyncInterfaceGenerator
 
             if (!first) sb.AppendLine();
             first = false;
-            EmitSignature(sb, s);
+            EmitSignature(sb, s, ct);
         }
 
         sb.AppendLine("    }");
@@ -64,13 +64,18 @@ internal static class AsyncInterfaceGenerator
         return sb.ToString();
     }
 
-    private static void EmitSignature(StringBuilder sb, AsyncSiblingMethod s)
+    private static void EmitSignature(
+        StringBuilder sb,
+        AsyncSiblingMethod s,
+        CancellationToken ct)
     {
         var returnText = NamingHelpers.GetDeclaredReturnTypeText(s.SiblingReturnKind, s.Source.UnwrappedReturnType);
 
         var paramList = new StringBuilder();
         for (var i = 0; i < s.Parameters.Count; i++)
         {
+            ct.ThrowIfCancellationRequested();
+
             if (i > 0) paramList.Append(", ");
             var p = s.Parameters[i];
             paramList.Append(p.RefKindKeyword).Append(p.Type).Append(' ').Append(p.Name);

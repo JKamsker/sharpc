@@ -1,14 +1,20 @@
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
 
 namespace ShaRPC.SourceGenerator;
 
 internal static class ProxyGenerationHelpers
 {
-    public static void AppendParameterList(StringBuilder sb, EquatableArray<ParameterModel> parameters)
+    public static void AppendParameterList(
+        StringBuilder sb,
+        EquatableArray<ParameterModel> parameters,
+        CancellationToken ct = default)
     {
         for (var i = 0; i < parameters.Count; i++)
         {
+            ct.ThrowIfCancellationRequested();
+
             if (i > 0) sb.Append(", ");
             var p = parameters[i];
             sb.Append(p.RefKindKeyword).Append(p.Type).Append(' ').Append(p.Name);
@@ -19,10 +25,14 @@ internal static class ProxyGenerationHelpers
         }
     }
 
-    public static string GetCancellationTokenArgument(EquatableArray<ParameterModel> parameters)
+    public static string GetCancellationTokenArgument(
+        EquatableArray<ParameterModel> parameters,
+        CancellationToken ct = default)
     {
         foreach (var p in parameters.Array)
         {
+            ct.ThrowIfCancellationRequested();
+
             if (p.IsCancellationToken)
             {
                 return p.Name;
@@ -32,11 +42,15 @@ internal static class ProxyGenerationHelpers
         return "default";
     }
 
-    public static List<ParameterModel> GetRequestParameters(EquatableArray<ParameterModel> parameters)
+    public static List<ParameterModel> GetRequestParameters(
+        EquatableArray<ParameterModel> parameters,
+        CancellationToken ct = default)
     {
         var requestParameters = new List<ParameterModel>();
         foreach (var p in parameters.Array)
         {
+            ct.ThrowIfCancellationRequested();
+
             if (!p.IsCancellationToken)
             {
                 requestParameters.Add(p);
@@ -64,11 +78,13 @@ internal static class ProxyGenerationHelpers
 
     public static string UniqueGeneratedLocalName(
         EquatableArray<ParameterModel> parameters,
-        string baseName)
+        string baseName,
+        CancellationToken ct = default)
     {
         var usedNames = new HashSet<string>(System.StringComparer.Ordinal);
         foreach (var parameter in parameters.Array)
         {
+            ct.ThrowIfCancellationRequested();
             usedNames.Add(parameter.Name);
         }
 
@@ -76,6 +92,8 @@ internal static class ProxyGenerationHelpers
         var suffix = 1;
         while (usedNames.Contains(candidate))
         {
+            ct.ThrowIfCancellationRequested();
+
             candidate = baseName + suffix;
             suffix++;
         }

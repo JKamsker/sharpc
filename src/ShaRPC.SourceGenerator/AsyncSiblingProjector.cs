@@ -19,6 +19,7 @@ internal static class AsyncSiblingProjector
     {
         var candidates = new List<AsyncSiblingMethod>();
         var collisions = new List<MethodDiagnostic>();
+        var blockedSignatures = UnsupportedOriginalSignatures(service, ct);
 
         for (var i = 0; i < service.Methods.Count; i++)
         {
@@ -44,6 +45,16 @@ internal static class AsyncSiblingProjector
             var siblingNameMatches = siblingName == m.Name;
             var signatureMatches = ParametersEqual(m.Parameters, siblingParameters, ct);
             var requiresExtra = !(siblingNameMatches && signatureMatches && NamingHelpers.IsAsync(m.ReturnKind));
+            var candidateKey = SignatureKey(siblingName, siblingParameters, ct);
+            if (requiresExtra && blockedSignatures.TryGetValue(candidateKey, out var blockerName))
+            {
+                collisions.Add(new MethodDiagnostic(
+                    service.InterfaceName,
+                    m.Name,
+                    $"the async-sibling projection '{siblingName}' would collide with unsupported method '{blockerName}'. Rename one of the methods or drop the trailing 'Async' on the sync method.",
+                    GetLocation(i, methodLocations)));
+                continue;
+            }
 
             candidates.Add(new AsyncSiblingMethod(
                 i,
@@ -58,7 +69,7 @@ internal static class AsyncSiblingProjector
         foreach (var candidate in candidates)
         {
             ct.ThrowIfCancellationRequested();
-            var key = SignatureKey(candidate, ct);
+            var key = SignatureKey(candidate.Name, candidate.Parameters, ct);
             if (!groups.TryGetValue(key, out var group))
             {
                 group = new List<AsyncSiblingMethod>();
@@ -72,7 +83,7 @@ internal static class AsyncSiblingProjector
         foreach (var candidate in candidates)
         {
             ct.ThrowIfCancellationRequested();
-            var key = SignatureKey(candidate, ct);
+            var key = SignatureKey(candidate.Name, candidate.Parameters, ct);
             if (!handledKeys.Add(key))
             {
                 continue;
@@ -124,11 +135,32 @@ internal static class AsyncSiblingProjector
         return methodLocations[sourceIndex];
     }
 
-    private static string SignatureKey(AsyncSiblingMethod method, CancellationToken ct)
+    private static Dictionary<string, string> UnsupportedOriginalSignatures(
+        ServiceModel service,
+        CancellationToken ct)
     {
-        var sb = new StringBuilder(method.Name);
+        var signatures = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var method in service.Methods.Array)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            if (method.UnsupportedReason is not null)
+            {
+                signatures[SignatureKey(method.Name, method.Parameters, ct)] = method.Name;
+            }
+        }
+
+        return signatures;
+    }
+
+    private static string SignatureKey(
+        string methodName,
+        EquatableArray<ParameterModel> parameters,
+        CancellationToken ct)
+    {
+        var sb = new StringBuilder(methodName);
         sb.Append('(');
-        for (var i = 0; i < method.Parameters.Count; i++)
+        for (var i = 0; i < parameters.Count; i++)
         {
             ct.ThrowIfCancellationRequested();
 
@@ -137,7 +169,7 @@ internal static class AsyncSiblingProjector
                 sb.Append(',');
             }
 
-            var parameter = method.Parameters[i];
+            var parameter = parameters[i];
             sb.Append(parameter.RefKindKeyword);
             sb.Append(parameter.Type);
         }

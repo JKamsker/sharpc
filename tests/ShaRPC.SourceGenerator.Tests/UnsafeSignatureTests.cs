@@ -23,6 +23,7 @@ public class UnsafeSignatureTests
                     void PointerParameter(int* value);
                     int* PointerReturn();
                     void FunctionPointerParameter(delegate*<void> callback);
+                    delegate*<int> FunctionPointerReturn();
                     Task<int> GoodAsync();
                 }
             }
@@ -34,7 +35,7 @@ public class UnsafeSignatureTests
         var finalCompilation = compilation.AddSyntaxTrees(runResult.GeneratedTrees);
 
         runResult.Diagnostics.Where(d => d.Id == "SHARPC002")
-            .Should().HaveCount(3);
+            .Should().HaveCount(4);
 
         var proxy = runResult.Results.Single().GeneratedSources
             .Single(g => g.HintName.EndsWith("IUnsafeRpc.ShaRpcProxy.g.cs"))
@@ -42,6 +43,7 @@ public class UnsafeSignatureTests
         proxy.Should().Contain("public unsafe void PointerParameter(int* value)");
         proxy.Should().Contain("public unsafe int* PointerReturn()");
         proxy.Should().Contain("public unsafe void FunctionPointerParameter(delegate*<void> callback)");
+        proxy.Should().Contain("public unsafe delegate*<int> FunctionPointerReturn()");
 
         using var ms = new MemoryStream();
         var emit = finalCompilation.Emit(ms);

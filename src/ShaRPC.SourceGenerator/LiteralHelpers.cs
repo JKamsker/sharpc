@@ -21,6 +21,9 @@ internal static class LiteralHelpers
                 case '"': sb.Append("\\\""); break;
                 case '\r': sb.Append("\\r"); break;
                 case '\n': sb.Append("\\n"); break;
+                case '\u0085': sb.Append("\\u0085"); break;
+                case '\u2028': sb.Append("\\u2028"); break;
+                case '\u2029': sb.Append("\\u2029"); break;
                 case '\t': sb.Append("\\t"); break;
                 case '\0': sb.Append("\\0"); break;
                 default: sb.Append(c); break;

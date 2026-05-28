@@ -1,0 +1,138 @@
+using System.IO;
+using System.Linq;
+using FluentAssertions;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+
+namespace ShaRPC.SourceGenerator.Tests;
+
+public class ReviewedCodegenRegressionTests
+{
+    [Fact]
+    public void RefReadonlyReturnMethod_PreservesProxyStubSignature()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+
+            namespace Regress.RefReadonlyReturn
+            {
+                [ShaRpcService]
+                public interface IRefReadonly
+                {
+                    ref readonly int Get();
+                }
+            }
+            """;
+
+        var (final, runResult) = Run(source);
+        AssertCompiles(final);
+
+        runResult.Diagnostics.Should().Contain(d => d.Id == "SHARPC002" &&
+            d.GetMessage().Contains("return value uses an unsupported pass-by-reference kind"));
+
+        var proxy = runResult.Results.Single().GeneratedSources
+            .Single(g => g.HintName == GeneratorTestHelper.HintName(
+                "Regress.RefReadonlyReturn",
+                "IRefReadonly",
+                GeneratorTestHelper.GeneratedKind.Proxy))
+            .SourceText.ToString();
+        proxy.Should().Contain("public ref readonly int Get()");
+    }
+
+    [Fact]
+    public void ExtensionMethodSuffixes_AreGloballyCollisionSafe()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading.Tasks;
+
+            namespace A.B
+            {
+                [ShaRpcService(Name = "A.B.IFoo")]
+                public interface IFoo
+                {
+                    Task<int> OneAsync();
+                }
+            }
+
+            namespace C
+            {
+                [ShaRpcService(Name = "C.IFoo")]
+                public interface IFoo
+                {
+                    Task<int> TwoAsync();
+                }
+            }
+
+            namespace X
+            {
+                [ShaRpcService(Name = "X.IA_B_Foo")]
+                public interface IA_B_Foo
+                {
+                    Task<int> ThreeAsync();
+                }
+            }
+            """;
+
+        var (final, runResult) = Run(source);
+        AssertCompiles(final);
+
+        var extensions = runResult.Results.Single().GeneratedSources
+            .Single(g => g.HintName == "ShaRpcExtensions.g.cs")
+            .SourceText.ToString();
+        extensions.Should().Contain("CreateA_B_FooProxy");
+        extensions.Should().Contain("CreateA_B_Foo__1Proxy");
+        extensions.Should().Contain("CreateC_FooProxy");
+    }
+
+    [Fact]
+    public void CustomWireNames_WithUnicodeLineSeparators_EmitEscapedStringLiterals()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading.Tasks;
+
+            namespace Regress.UnicodeWireNames
+            {
+                [ShaRpcService(Name = "svc\u2028name")]
+                public interface ILineSeparator
+                {
+                    [ShaRpcMethod(Name = "method\u2029name")]
+                    Task<int> GetAsync();
+                }
+            }
+            """;
+
+        var (final, runResult) = Run(source);
+        AssertCompiles(final);
+
+        var dispatcher = runResult.Results.Single().GeneratedSources
+            .Single(g => g.HintName == GeneratorTestHelper.HintName(
+                "Regress.UnicodeWireNames",
+                "ILineSeparator",
+                GeneratorTestHelper.GeneratedKind.Dispatcher))
+            .SourceText.ToString();
+        dispatcher.Should().Contain("\"svc\\u2028name\"");
+        dispatcher.Should().Contain("\"method\\u2029name\"");
+    }
+
+    private static (CSharpCompilation Final, GeneratorDriverRunResult RunResult) Run(string source)
+    {
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var driver = GeneratorTestHelper.CreateDriver().RunGenerators(compilation);
+        var runResult = driver.GetRunResult();
+        var finalCompilation = compilation.AddSyntaxTrees(runResult.GeneratedTrees);
+        return (finalCompilation, runResult);
+    }
+
+    private static void AssertCompiles(CSharpCompilation compilation)
+    {
+        using var ms = new MemoryStream();
+        var emit = compilation.Emit(ms);
+        emit.Success.Should().BeTrue(string.Join(
+            "\n",
+            emit.Diagnostics
+                .Where(d => d.Severity == DiagnosticSeverity.Error)
+                .Select(d => d.ToString())));
+    }
+}

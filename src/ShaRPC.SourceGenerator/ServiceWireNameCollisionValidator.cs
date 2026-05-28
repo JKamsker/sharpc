@@ -1,9 +1,11 @@
+using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using System.Threading;
 
 namespace ShaRPC.SourceGenerator;
 
-internal sealed record ServiceWireNameIndex(EquatableArray<ServiceWireNameEntry> Entries)
+internal sealed record ServiceWireNameIndex(EquatableArray<ServiceWireNameEntry> DuplicateEntries)
 {
     public static ServiceWireNameIndex Create(ImmutableArray<ServiceResult> results, CancellationToken ct)
     {
@@ -22,17 +24,27 @@ internal sealed record ServiceWireNameIndex(EquatableArray<ServiceWireNameEntry>
                 result.QualifiedInterfaceName));
         }
 
-        return new ServiceWireNameIndex(entries.ToImmutable().ToEquatableArray());
+        return new ServiceWireNameIndex(GetDuplicates(entries.ToImmutable(), ct));
     }
 
-    public ServiceWireNameEntry? FindCollision(ServiceModel model, string qualifiedInterfaceName, CancellationToken ct)
+    public ServiceWireNameEntry? FindCollision(
+        ServiceModel model,
+        string qualifiedInterfaceName,
+        CancellationToken ct)
     {
-        foreach (var entry in Entries.Array)
+        var target = new ServiceWireNameEntry(model.ServiceName, qualifiedInterfaceName);
+        var start = LowerBound(target, ct);
+        for (var i = start; i < DuplicateEntries.Count; i++)
         {
             ct.ThrowIfCancellationRequested();
 
-            if (entry.ServiceName == model.ServiceName &&
-                entry.QualifiedInterfaceName != qualifiedInterfaceName)
+            var entry = DuplicateEntries[i];
+            if (string.Compare(entry.ServiceName, model.ServiceName, System.StringComparison.Ordinal) != 0)
+            {
+                break;
+            }
+
+            if (entry.QualifiedInterfaceName != qualifiedInterfaceName)
             {
                 return entry;
             }
@@ -40,11 +52,78 @@ internal sealed record ServiceWireNameIndex(EquatableArray<ServiceWireNameEntry>
 
         return null;
     }
+
+    private static EquatableArray<ServiceWireNameEntry> GetDuplicates(
+        ImmutableArray<ServiceWireNameEntry> entries,
+        CancellationToken ct)
+    {
+        var ordered = entries
+            .OrderBy(static entry => entry, ServiceWireNameEntryComparer.Instance)
+            .ToArray();
+        var duplicates = new List<ServiceWireNameEntry>();
+        for (var i = 0; i < ordered.Length;)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var start = i;
+            i++;
+            while (i < ordered.Length && ordered[i].ServiceName == ordered[start].ServiceName)
+            {
+                ct.ThrowIfCancellationRequested();
+                i++;
+            }
+
+            if (i - start > 1)
+            {
+                for (var j = start; j < i; j++)
+                {
+                    duplicates.Add(ordered[j]);
+                }
+            }
+        }
+
+        return duplicates.ToEquatableArray();
+    }
+
+    private int LowerBound(ServiceWireNameEntry target, CancellationToken ct)
+    {
+        var low = 0;
+        var high = DuplicateEntries.Count;
+        while (low < high)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var mid = low + ((high - low) / 2);
+            if (string.Compare(DuplicateEntries[mid].ServiceName, target.ServiceName, System.StringComparison.Ordinal) < 0)
+            {
+                low = mid + 1;
+            }
+            else
+            {
+                high = mid;
+            }
+        }
+
+        return low;
+    }
 }
 
 internal readonly record struct ServiceWireNameEntry(
     string ServiceName,
     string QualifiedInterfaceName);
+
+internal sealed class ServiceWireNameEntryComparer : IComparer<ServiceWireNameEntry>
+{
+    public static ServiceWireNameEntryComparer Instance { get; } = new();
+
+    public int Compare(ServiceWireNameEntry left, ServiceWireNameEntry right)
+    {
+        var serviceName = string.Compare(left.ServiceName, right.ServiceName, System.StringComparison.Ordinal);
+        return serviceName != 0
+            ? serviceName
+            : string.Compare(left.QualifiedInterfaceName, right.QualifiedInterfaceName, System.StringComparison.Ordinal);
+    }
+}
 
 internal static class ServiceWireNameCollisionValidator
 {
