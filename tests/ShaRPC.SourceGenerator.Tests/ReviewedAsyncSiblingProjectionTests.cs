@@ -69,6 +69,37 @@ public class ReviewedAsyncSiblingProjectionTests
             .Should().ContainSingle();
     }
 
+    [Fact]
+    public void UnsupportedGenericOriginal_DoesNotBlockNonGenericAsyncProjection()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading;
+            using System.Threading.Tasks;
+
+            namespace AsyncSibling.GenericArity
+            {
+                [ShaRpcService]
+                public interface IGenericOriginal
+                {
+                    int Fetch(int id);
+                    Task<T> FetchAsync<T>(int id, CancellationToken ct = default);
+                }
+            }
+            """;
+
+        var (assembly, runResult) = Compile(source);
+
+        runResult.Diagnostics.Should().Contain(d => d.Id == "SHARPC002" &&
+            d.GetMessage().Contains("generic service methods are not supported"));
+        runResult.Diagnostics.Should().NotContain(d => d.Id == "SHARPC004");
+
+        var proxy = assembly.GetType("AsyncSibling.GenericArity.GenericOriginalProxy")!;
+        proxy.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .Where(m => m.Name == "FetchAsync")
+            .Should().HaveCount(2);
+    }
+
     private static (Assembly Assembly, GeneratorDriverRunResult RunResult) Compile(string source)
     {
         var compilation = GeneratorTestHelper.CreateCompilation(source);

@@ -45,7 +45,7 @@ internal static class AsyncSiblingProjector
             var siblingNameMatches = siblingName == m.Name;
             var signatureMatches = ParametersEqual(m.Parameters, siblingParameters, ct);
             var requiresExtra = !(siblingNameMatches && signatureMatches && NamingHelpers.IsAsync(m.ReturnKind));
-            var candidateKey = SignatureKey(siblingName, siblingParameters, ct);
+            var candidateKey = SignatureKey(siblingName, m.TypeParameterList, siblingParameters, ct);
             if (requiresExtra && blockedSignatures.TryGetValue(candidateKey, out var blockerName))
             {
                 collisions.Add(new MethodDiagnostic(
@@ -69,7 +69,7 @@ internal static class AsyncSiblingProjector
         foreach (var candidate in candidates)
         {
             ct.ThrowIfCancellationRequested();
-            var key = SignatureKey(candidate.Name, candidate.Parameters, ct);
+            var key = SignatureKey(candidate.Name, candidate.Source.TypeParameterList, candidate.Parameters, ct);
             if (!groups.TryGetValue(key, out var group))
             {
                 group = new List<AsyncSiblingMethod>();
@@ -83,7 +83,7 @@ internal static class AsyncSiblingProjector
         foreach (var candidate in candidates)
         {
             ct.ThrowIfCancellationRequested();
-            var key = SignatureKey(candidate.Name, candidate.Parameters, ct);
+            var key = SignatureKey(candidate.Name, candidate.Source.TypeParameterList, candidate.Parameters, ct);
             if (!handledKeys.Add(key))
             {
                 continue;
@@ -146,7 +146,7 @@ internal static class AsyncSiblingProjector
 
             if (method.UnsupportedReason is not null)
             {
-                signatures[SignatureKey(method.Name, method.Parameters, ct)] = method.Name;
+                signatures[SignatureKey(method.Name, method.TypeParameterList, method.Parameters, ct)] = method.Name;
             }
         }
 
@@ -155,10 +155,12 @@ internal static class AsyncSiblingProjector
 
     private static string SignatureKey(
         string methodName,
+        string typeParameterList,
         EquatableArray<ParameterModel> parameters,
         CancellationToken ct)
     {
         var sb = new StringBuilder(IdentifierHelpers.UnescapeIdentifier(methodName));
+        sb.Append(typeParameterList);
         sb.Append('(');
         for (var i = 0; i < parameters.Count; i++)
         {
