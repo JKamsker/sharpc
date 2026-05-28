@@ -4,7 +4,10 @@ namespace ShaRPC.SourceGenerator;
 
 internal static class GeneratedTypeCollisionValidator
 {
-    public static ServiceResult Apply(ServiceResult result, ExistingTypeIndex existingTypes, CancellationToken ct)
+    public static ServiceResult ApplyPrimaryTypes(
+        ServiceResult result,
+        ExistingTypeIndex existingTypes,
+        CancellationToken ct)
     {
         if (result.Model is null)
         {
@@ -34,19 +37,6 @@ internal static class GeneratedTypeCollisionValidator
                 dispatcher);
         }
 
-        if (NamingHelpers.CanGenerateAsyncSiblingInterface(model.InterfaceName))
-        {
-            var siblingName = NamingHelpers.AsyncSiblingInterfaceName(model.InterfaceName);
-            var sibling = new ExistingTypeKey(model.Namespace, siblingName, 0);
-            if (existingTypes.Contains(sibling, ct) && WillGenerateAsyncSiblingInterface(model, ct))
-            {
-                return RejectedService(
-                    model,
-                    $"generated async sibling interface '{siblingName}' would collide with an existing type",
-                    sibling);
-            }
-        }
-
         var extensions = new ExistingTypeKey("ShaRPC.Generated", "ShaRpcGeneratedExtensions", 0);
         if (existingTypes.Contains(extensions, ct))
         {
@@ -57,6 +47,35 @@ internal static class GeneratedTypeCollisionValidator
         }
 
         return result;
+    }
+
+    public static ServiceResult ApplyAsyncSibling(
+        ServiceResult result,
+        ExistingTypeIndex existingTypes,
+        CancellationToken ct)
+    {
+        if (result.Model is null)
+        {
+            return result;
+        }
+
+        var model = result.Model;
+        if (!NamingHelpers.CanGenerateAsyncSiblingInterface(model.InterfaceName))
+        {
+            return result;
+        }
+
+        var siblingName = NamingHelpers.AsyncSiblingInterfaceName(model.InterfaceName);
+        var sibling = new ExistingTypeKey(model.Namespace, siblingName, 0);
+        if (!existingTypes.Contains(sibling, ct) || !WillGenerateAsyncSiblingInterface(model, ct))
+        {
+            return result;
+        }
+
+        return RejectedService(
+            model,
+            $"generated async sibling interface '{siblingName}' would collide with an existing type",
+            sibling);
     }
 
     private static bool WillGenerateAsyncSiblingInterface(ServiceModel model, CancellationToken ct)
