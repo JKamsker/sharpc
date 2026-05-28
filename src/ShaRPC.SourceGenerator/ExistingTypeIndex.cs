@@ -65,7 +65,9 @@ internal sealed record ExistingTypeIndex(EquatableArray<ExistingTypeKey> Types)
 
     public static ExistingTypeKey? KeyFromDeclaration(SyntaxNode node)
     {
-        if (!TryGetTypeName(node, out var name) || IsNestedInType(node) || IsFileLocal(node))
+        if (!TryGetTypeIdentity(node, out var name, out var arity) ||
+            IsNestedInType(node) ||
+            IsFileLocal(node))
         {
             return null;
         }
@@ -75,7 +77,7 @@ internal sealed record ExistingTypeIndex(EquatableArray<ExistingTypeKey> Types)
             return null;
         }
 
-        return new ExistingTypeKey(GetNamespace(node), name);
+        return new ExistingTypeKey(GetNamespace(node), name, arity);
     }
 
     private static bool CanCollideWithGeneratedType(string name) =>
@@ -84,18 +86,25 @@ internal sealed record ExistingTypeIndex(EquatableArray<ExistingTypeKey> Types)
         name.EndsWith("Async", System.StringComparison.Ordinal) ||
         name == "ShaRpcGeneratedExtensions";
 
-    private static bool TryGetTypeName(SyntaxNode node, out string name)
+    private static bool TryGetTypeIdentity(SyntaxNode node, out string name, out int arity)
     {
         switch (node)
         {
+            case TypeDeclarationSyntax declaration:
+                name = declaration.Identifier.ValueText;
+                arity = declaration.TypeParameterList?.Parameters.Count ?? 0;
+                return true;
             case BaseTypeDeclarationSyntax declaration:
                 name = declaration.Identifier.ValueText;
+                arity = 0;
                 return true;
             case DelegateDeclarationSyntax declaration:
                 name = declaration.Identifier.ValueText;
+                arity = declaration.TypeParameterList?.Parameters.Count ?? 0;
                 return true;
             default:
                 name = string.Empty;
+                arity = 0;
                 return false;
         }
     }
@@ -148,13 +157,25 @@ internal sealed record ExistingTypeIndex(EquatableArray<ExistingTypeKey> Types)
         {
             if (parent is BaseNamespaceDeclarationSyntax namespaceDeclaration)
             {
-                namespaces.Add(namespaceDeclaration.Name.ToString().Replace("@", string.Empty));
+                namespaces.Add(GetNamespaceName(namespaceDeclaration.Name));
             }
         }
 
         namespaces.Reverse();
         return string.Join(".", namespaces);
     }
+
+    private static string GetNamespaceName(NameSyntax name) =>
+        name switch
+        {
+            QualifiedNameSyntax qualified => GetNamespaceName(qualified.Left) + "." + GetSimpleName(qualified.Right),
+            AliasQualifiedNameSyntax alias => GetSimpleName(alias.Name),
+            SimpleNameSyntax simple => GetSimpleName(simple),
+            _ => name.ToString().Replace(" ", string.Empty).Replace("@", string.Empty),
+        };
+
+    private static string GetSimpleName(SimpleNameSyntax name) =>
+        name.Identifier.ValueText;
 }
 
 internal sealed record ExistingTypeLocationIndex(EquatableArray<ExistingTypeDeclaration> Types)
@@ -212,7 +233,8 @@ internal readonly record struct ExistingTypeDeclaration(
 
 internal readonly record struct ExistingTypeKey(
     string Namespace,
-    string Name);
+    string Name,
+    int Arity);
 
 internal sealed class ExistingTypeKeyComparer : IComparer<ExistingTypeKey>
 {
@@ -221,8 +243,14 @@ internal sealed class ExistingTypeKeyComparer : IComparer<ExistingTypeKey>
     public int Compare(ExistingTypeKey left, ExistingTypeKey right)
     {
         var ns = string.Compare(left.Namespace, right.Namespace, System.StringComparison.Ordinal);
-        return ns != 0
-            ? ns
-            : string.Compare(left.Name, right.Name, System.StringComparison.Ordinal);
+        if (ns != 0)
+        {
+            return ns;
+        }
+
+        var name = string.Compare(left.Name, right.Name, System.StringComparison.Ordinal);
+        return name != 0
+            ? name
+            : left.Arity.CompareTo(right.Arity);
     }
 }

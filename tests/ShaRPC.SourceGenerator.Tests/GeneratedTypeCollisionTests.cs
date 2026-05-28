@@ -64,6 +64,65 @@ public class GeneratedTypeCollisionTests
     }
 
     [Fact]
+    public void GenericExistingProxyType_DoesNotProduceCollision()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading.Tasks;
+
+            namespace Regress.GeneratedTypeCollision
+            {
+                public sealed class FooProxy<T>
+                {
+                }
+
+                [ShaRpcService]
+                public interface IFoo
+                {
+                    Task<int> GetAsync();
+                }
+            }
+            """;
+
+        var runResult = Run(source);
+
+        runResult.Diagnostics.Should().NotContain(d => d.Id == "SHARPC003" &&
+            d.GetMessage().Contains("FooProxy"));
+        runResult.Results.Single().GeneratedSources
+            .Should().Contain(g => g.HintName.Contains("IFoo.ShaRpcProxy.g.cs"));
+    }
+
+    [Fact]
+    public void NamespaceWithTrivia_StillProducesExistingTypeCollision()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading.Tasks;
+
+            namespace Regress . GeneratedTypeCollision
+            {
+                public sealed class FooProxy
+                {
+                }
+
+                [ShaRpcService]
+                public interface IFoo
+                {
+                    Task<int> GetAsync();
+                }
+            }
+            """;
+
+        var runResult = Run(source);
+
+        var diagnostic = runResult.Diagnostics.Single(d => d.Id == "SHARPC003");
+        diagnostic.GetMessage().Should().Contain("generated proxy type 'FooProxy' would collide");
+        DiagnosticText(source, diagnostic).Should().Contain("FooProxy");
+        runResult.Results.Single().GeneratedSources
+            .Should().NotContain(g => g.HintName.Contains("IFoo."));
+    }
+
+    [Fact]
     public void ExistingDispatcherType_ProducesSHARPC003_AndServiceIsSkipped()
     {
         const string source = """

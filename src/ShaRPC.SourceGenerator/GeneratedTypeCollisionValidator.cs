@@ -15,7 +15,7 @@ internal static class GeneratedTypeCollisionValidator
         var serviceName = NamingHelpers.StripInterfacePrefix(model.InterfaceName);
 
         var proxyName = serviceName + "Proxy";
-        var proxy = new ExistingTypeKey(model.Namespace, proxyName);
+        var proxy = new ExistingTypeKey(model.Namespace, proxyName, 0);
         if (existingTypes.Contains(proxy, ct))
         {
             return RejectedService(
@@ -25,7 +25,7 @@ internal static class GeneratedTypeCollisionValidator
         }
 
         var dispatcherName = serviceName + "Dispatcher";
-        var dispatcher = new ExistingTypeKey(model.Namespace, dispatcherName);
+        var dispatcher = new ExistingTypeKey(model.Namespace, dispatcherName, 0);
         if (existingTypes.Contains(dispatcher, ct))
         {
             return RejectedService(
@@ -37,7 +37,7 @@ internal static class GeneratedTypeCollisionValidator
         if (NamingHelpers.CanGenerateAsyncSiblingInterface(model.InterfaceName))
         {
             var siblingName = NamingHelpers.AsyncSiblingInterfaceName(model.InterfaceName);
-            var sibling = new ExistingTypeKey(model.Namespace, siblingName);
+            var sibling = new ExistingTypeKey(model.Namespace, siblingName, 0);
             if (existingTypes.Contains(sibling, ct) && WillGenerateAsyncSiblingInterface(model, ct))
             {
                 return RejectedService(
@@ -47,7 +47,7 @@ internal static class GeneratedTypeCollisionValidator
             }
         }
 
-        var extensions = new ExistingTypeKey("ShaRPC.Generated", "ShaRpcGeneratedExtensions");
+        var extensions = new ExistingTypeKey("ShaRPC.Generated", "ShaRpcGeneratedExtensions", 0);
         if (existingTypes.Contains(extensions, ct))
         {
             return RejectedService(
