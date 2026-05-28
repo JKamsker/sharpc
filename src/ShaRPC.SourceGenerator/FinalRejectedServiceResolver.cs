@@ -18,19 +18,19 @@ internal static class FinalRejectedServiceResolver
         {
             ct.ThrowIfCancellationRequested();
 
+            var cycleStart = IndexOf(seen, rejected, ct);
+            if (cycleStart >= 0)
+            {
+                return Union(seen, cycleStart, rejected, ct);
+            }
+
+            seen.Add(rejected);
             var next = ComputeNext(baseResults, rejected, existingTypes, ct);
             if (SameRejectedServices(rejected, next, ct))
             {
                 return next;
             }
 
-            var cycleStart = IndexOf(seen, next, ct);
-            if (cycleStart >= 0)
-            {
-                return Union(seen, cycleStart, next, ct);
-            }
-
-            seen.Add(rejected);
             rejected = next;
         }
 

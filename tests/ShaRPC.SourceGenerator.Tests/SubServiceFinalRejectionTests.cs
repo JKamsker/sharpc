@@ -76,6 +76,60 @@ public class SubServiceFinalRejectionTests
         parentProxy.Should().NotContain("ShaRPC cannot marshal 'GetRootAsync'");
     }
 
+    [Fact]
+    public void CyclicAsyncSiblingRejections_StubParentInsteadOfReferencingMissingProxy()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading.Tasks;
+
+            namespace Regress.CyclicFinalRejectedSubService
+            {
+                public interface IAAsync
+                {
+                }
+
+                public interface IBAsync
+                {
+                }
+
+                [ShaRpcService]
+                public interface IA
+                {
+                    Task<IB> GetBAsync();
+                }
+
+                [ShaRpcService]
+                public interface IB
+                {
+                    Task<IA> GetAAsync();
+                }
+
+                [ShaRpcService]
+                public interface IParent
+                {
+                    Task<IA> GetAAsync();
+                }
+            }
+            """;
+
+        var (final, runResult) = Run(source);
+        AssertCompiles(final);
+
+        runResult.Diagnostics.Should().Contain(d => d.Id == "SHARPC002" &&
+            d.GetMessage().Contains("IParent.GetAAsync"));
+        runResult.Diagnostics.Should().Contain(d => d.Id == "SHARPC002" &&
+            d.GetMessage().Contains("IA.GetBAsync"));
+        runResult.Diagnostics.Should().Contain(d => d.Id == "SHARPC002" &&
+            d.GetMessage().Contains("IB.GetAAsync"));
+
+        var parentProxy = runResult.Results.Single().GeneratedSources
+            .Single(g => g.HintName.EndsWith("IParent.ShaRpcProxy.g.cs"))
+            .SourceText.ToString();
+        parentProxy.Should().Contain("throw new global::System.NotSupportedException");
+        parentProxy.Should().NotContain("new global::Regress.CyclicFinalRejectedSubService.AProxy");
+    }
+
     private static (CSharpCompilation Final, GeneratorDriverRunResult RunResult) Run(string source)
     {
         var compilation = GeneratorTestHelper.CreateCompilation(source);
