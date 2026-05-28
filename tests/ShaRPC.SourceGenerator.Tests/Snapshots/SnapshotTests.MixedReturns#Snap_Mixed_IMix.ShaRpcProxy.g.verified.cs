@@ -15,55 +15,55 @@ namespace Snap.Mixed
 
         public MixProxy(global::ShaRPC.Core.Client.IShaRpcClient client)
         {
-            _client = client ?? throw new global::System.ArgumentNullException(nameof(client));
-            _instanceId = null;
+            this._client = client ?? throw new global::System.ArgumentNullException(nameof(client));
+            this._instanceId = null;
         }
 
         /// <summary>Constructs a proxy bound to a specific server-side instance.</summary>
         public MixProxy(global::ShaRPC.Core.Client.IShaRpcClient client, string instanceId)
         {
-            _client = client ?? throw new global::System.ArgumentNullException(nameof(client));
-            _instanceId = instanceId ?? throw new global::System.ArgumentNullException(nameof(instanceId));
+            this._client = client ?? throw new global::System.ArgumentNullException(nameof(client));
+            this._instanceId = instanceId ?? throw new global::System.ArgumentNullException(nameof(instanceId));
         }
 
         public async global::System.Threading.Tasks.Task<string> GetNameAsync()
         {
-            return await (_instanceId is null ? _client.InvokeAsync<string>("IMix", "GetNameAsync", default) : _client.InvokeOnInstanceAsync<string>("IMix", _instanceId, "GetNameAsync", default));
+            return await (this._instanceId is null ? this._client.InvokeAsync<string>("IMix", "GetNameAsync", default) : this._client.InvokeOnInstanceAsync<string>("IMix", this._instanceId!, "GetNameAsync", default));
         }
 
         public async global::System.Threading.Tasks.Task SaveAsync(string value)
         {
-            await (_instanceId is null ? _client.InvokeAsync<string>("IMix", "SaveAsync", value, default) : _client.InvokeOnInstanceAsync<string>("IMix", _instanceId, "SaveAsync", value, default));
+            await (this._instanceId is null ? this._client.InvokeAsync<string>("IMix", "SaveAsync", value, default) : this._client.InvokeOnInstanceAsync<string>("IMix", this._instanceId!, "SaveAsync", value, default));
         }
 
         public int SyncAdd(int a, int b)
         {
-            return (_instanceId is null ? _client.InvokeAsync<(int, int), int>("IMix", "SyncAdd", (a, b), default) : _client.InvokeOnInstanceAsync<(int, int), int>("IMix", _instanceId, "SyncAdd", (a, b), default)).GetAwaiter().GetResult();
+            return (this._instanceId is null ? this._client.InvokeAsync<(int, int), int>("IMix", "SyncAdd", (a, b), default) : this._client.InvokeOnInstanceAsync<(int, int), int>("IMix", this._instanceId!, "SyncAdd", (a, b), default)).GetAwaiter().GetResult();
         }
 
         public void SyncPing()
         {
-            (_instanceId is null ? _client.InvokeAsync<object>("IMix", "SyncPing", new object(), default) : _client.InvokeOnInstanceAsync<object>("IMix", _instanceId, "SyncPing", new object(), default)).GetAwaiter().GetResult();
+            (this._instanceId is null ? this._client.InvokeAsync<object>("IMix", "SyncPing", new object(), default) : this._client.InvokeOnInstanceAsync<object>("IMix", this._instanceId!, "SyncPing", new object(), default)).GetAwaiter().GetResult();
         }
 
         public async global::System.Threading.Tasks.Task<string> GetNameAsync(global::System.Threading.CancellationToken ct = default)
         {
-            return await (_instanceId is null ? _client.InvokeAsync<string>("IMix", "GetNameAsync", ct) : _client.InvokeOnInstanceAsync<string>("IMix", _instanceId, "GetNameAsync", ct));
+            return await (this._instanceId is null ? this._client.InvokeAsync<string>("IMix", "GetNameAsync", ct) : this._client.InvokeOnInstanceAsync<string>("IMix", this._instanceId!, "GetNameAsync", ct));
         }
 
         public async global::System.Threading.Tasks.Task SaveAsync(string value, global::System.Threading.CancellationToken ct = default)
         {
-            await (_instanceId is null ? _client.InvokeAsync<string>("IMix", "SaveAsync", value, ct) : _client.InvokeOnInstanceAsync<string>("IMix", _instanceId, "SaveAsync", value, ct));
+            await (this._instanceId is null ? this._client.InvokeAsync<string>("IMix", "SaveAsync", value, ct) : this._client.InvokeOnInstanceAsync<string>("IMix", this._instanceId!, "SaveAsync", value, ct));
         }
 
         public async global::System.Threading.Tasks.Task<int> SyncAddAsync(int a, int b, global::System.Threading.CancellationToken ct = default)
         {
-            return await (_instanceId is null ? _client.InvokeAsync<(int, int), int>("IMix", "SyncAdd", (a, b), ct) : _client.InvokeOnInstanceAsync<(int, int), int>("IMix", _instanceId, "SyncAdd", (a, b), ct));
+            return await (this._instanceId is null ? this._client.InvokeAsync<(int, int), int>("IMix", "SyncAdd", (a, b), ct) : this._client.InvokeOnInstanceAsync<(int, int), int>("IMix", this._instanceId!, "SyncAdd", (a, b), ct));
         }
 
         public async global::System.Threading.Tasks.Task SyncPingAsync(global::System.Threading.CancellationToken ct = default)
         {
-            await (_instanceId is null ? _client.InvokeAsync<object>("IMix", "SyncPing", new object(), ct) : _client.InvokeOnInstanceAsync<object>("IMix", _instanceId, "SyncPing", new object(), ct));
+            await (this._instanceId is null ? this._client.InvokeAsync<object>("IMix", "SyncPing", new object(), ct) : this._client.InvokeOnInstanceAsync<object>("IMix", this._instanceId!, "SyncPing", new object(), ct));
         }
     }
 }

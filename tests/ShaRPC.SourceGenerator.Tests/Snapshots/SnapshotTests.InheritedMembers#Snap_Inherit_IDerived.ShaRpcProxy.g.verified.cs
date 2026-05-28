@@ -15,35 +15,35 @@ namespace Snap.Inherit
 
         public DerivedProxy(global::ShaRPC.Core.Client.IShaRpcClient client)
         {
-            _client = client ?? throw new global::System.ArgumentNullException(nameof(client));
-            _instanceId = null;
+            this._client = client ?? throw new global::System.ArgumentNullException(nameof(client));
+            this._instanceId = null;
         }
 
         /// <summary>Constructs a proxy bound to a specific server-side instance.</summary>
         public DerivedProxy(global::ShaRPC.Core.Client.IShaRpcClient client, string instanceId)
         {
-            _client = client ?? throw new global::System.ArgumentNullException(nameof(client));
-            _instanceId = instanceId ?? throw new global::System.ArgumentNullException(nameof(instanceId));
+            this._client = client ?? throw new global::System.ArgumentNullException(nameof(client));
+            this._instanceId = instanceId ?? throw new global::System.ArgumentNullException(nameof(instanceId));
         }
 
         public async global::System.Threading.Tasks.Task<string> DerivedAsync()
         {
-            return await (_instanceId is null ? _client.InvokeAsync<string>("IDerived", "DerivedAsync", default) : _client.InvokeOnInstanceAsync<string>("IDerived", _instanceId, "DerivedAsync", default));
+            return await (this._instanceId is null ? this._client.InvokeAsync<string>("IDerived", "DerivedAsync", default) : this._client.InvokeOnInstanceAsync<string>("IDerived", this._instanceId!, "DerivedAsync", default));
         }
 
         public async global::System.Threading.Tasks.Task<int> BaseAsync(int x)
         {
-            return await (_instanceId is null ? _client.InvokeAsync<int, int>("IDerived", "BaseAsync", x, default) : _client.InvokeOnInstanceAsync<int, int>("IDerived", _instanceId, "BaseAsync", x, default));
+            return await (this._instanceId is null ? this._client.InvokeAsync<int, int>("IDerived", "BaseAsync", x, default) : this._client.InvokeOnInstanceAsync<int, int>("IDerived", this._instanceId!, "BaseAsync", x, default));
         }
 
         public async global::System.Threading.Tasks.Task<string> DerivedAsync(global::System.Threading.CancellationToken ct = default)
         {
-            return await (_instanceId is null ? _client.InvokeAsync<string>("IDerived", "DerivedAsync", ct) : _client.InvokeOnInstanceAsync<string>("IDerived", _instanceId, "DerivedAsync", ct));
+            return await (this._instanceId is null ? this._client.InvokeAsync<string>("IDerived", "DerivedAsync", ct) : this._client.InvokeOnInstanceAsync<string>("IDerived", this._instanceId!, "DerivedAsync", ct));
         }
 
         public async global::System.Threading.Tasks.Task<int> BaseAsync(int x, global::System.Threading.CancellationToken ct = default)
         {
-            return await (_instanceId is null ? _client.InvokeAsync<int, int>("IDerived", "BaseAsync", x, ct) : _client.InvokeOnInstanceAsync<int, int>("IDerived", _instanceId, "BaseAsync", x, ct));
+            return await (this._instanceId is null ? this._client.InvokeAsync<int, int>("IDerived", "BaseAsync", x, ct) : this._client.InvokeOnInstanceAsync<int, int>("IDerived", this._instanceId!, "BaseAsync", x, ct));
         }
     }
 }

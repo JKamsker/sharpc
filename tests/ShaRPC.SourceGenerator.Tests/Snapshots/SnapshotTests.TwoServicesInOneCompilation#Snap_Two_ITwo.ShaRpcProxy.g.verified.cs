@@ -15,25 +15,25 @@ namespace Snap.Two
 
         public TwoProxy(global::ShaRPC.Core.Client.IShaRpcClient client)
         {
-            _client = client ?? throw new global::System.ArgumentNullException(nameof(client));
-            _instanceId = null;
+            this._client = client ?? throw new global::System.ArgumentNullException(nameof(client));
+            this._instanceId = null;
         }
 
         /// <summary>Constructs a proxy bound to a specific server-side instance.</summary>
         public TwoProxy(global::ShaRPC.Core.Client.IShaRpcClient client, string instanceId)
         {
-            _client = client ?? throw new global::System.ArgumentNullException(nameof(client));
-            _instanceId = instanceId ?? throw new global::System.ArgumentNullException(nameof(instanceId));
+            this._client = client ?? throw new global::System.ArgumentNullException(nameof(client));
+            this._instanceId = instanceId ?? throw new global::System.ArgumentNullException(nameof(instanceId));
         }
 
         public async global::System.Threading.Tasks.Task<string> BAsync()
         {
-            return await (_instanceId is null ? _client.InvokeAsync<string>("ITwo", "BAsync", default) : _client.InvokeOnInstanceAsync<string>("ITwo", _instanceId, "BAsync", default));
+            return await (this._instanceId is null ? this._client.InvokeAsync<string>("ITwo", "BAsync", default) : this._client.InvokeOnInstanceAsync<string>("ITwo", this._instanceId!, "BAsync", default));
         }
 
         public async global::System.Threading.Tasks.Task<string> BAsync(global::System.Threading.CancellationToken ct = default)
         {
-            return await (_instanceId is null ? _client.InvokeAsync<string>("ITwo", "BAsync", ct) : _client.InvokeOnInstanceAsync<string>("ITwo", _instanceId, "BAsync", ct));
+            return await (this._instanceId is null ? this._client.InvokeAsync<string>("ITwo", "BAsync", ct) : this._client.InvokeOnInstanceAsync<string>("ITwo", this._instanceId!, "BAsync", ct));
         }
     }
 }

@@ -61,4 +61,25 @@ internal static class ProxyGenerationHelpers
             : startsWithGlobal ? qualifiedInterfaceName.Substring(globalPrefix.Length) : qualifiedInterfaceName;
         return qualifierPart + NamingHelpers.StripInterfacePrefix(simpleName) + "Proxy";
     }
+
+    public static string UniqueGeneratedLocalName(
+        EquatableArray<ParameterModel> parameters,
+        string baseName)
+    {
+        var usedNames = new HashSet<string>(System.StringComparer.Ordinal);
+        foreach (var parameter in parameters.Array)
+        {
+            usedNames.Add(parameter.Name);
+        }
+
+        var candidate = baseName;
+        var suffix = 1;
+        while (usedNames.Contains(candidate))
+        {
+            candidate = baseName + suffix;
+            suffix++;
+        }
+
+        return candidate;
+    }
 }

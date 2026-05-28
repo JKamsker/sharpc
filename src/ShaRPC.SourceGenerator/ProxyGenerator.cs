@@ -51,15 +51,15 @@ internal static class ProxyGenerator
         sb.AppendLine();
         sb.AppendLine($"        public {proxyName}(global::ShaRPC.Core.Client.IShaRpcClient client)");
         sb.AppendLine("        {");
-        sb.AppendLine("            _client = client ?? throw new global::System.ArgumentNullException(nameof(client));");
-        sb.AppendLine("            _instanceId = null;");
+        sb.AppendLine("            this._client = client ?? throw new global::System.ArgumentNullException(nameof(client));");
+        sb.AppendLine("            this._instanceId = null;");
         sb.AppendLine("        }");
         sb.AppendLine();
         sb.AppendLine($"        /// <summary>Constructs a proxy bound to a specific server-side instance.</summary>");
         sb.AppendLine($"        public {proxyName}(global::ShaRPC.Core.Client.IShaRpcClient client, string instanceId)");
         sb.AppendLine("        {");
-        sb.AppendLine("            _client = client ?? throw new global::System.ArgumentNullException(nameof(client));");
-        sb.AppendLine("            _instanceId = instanceId ?? throw new global::System.ArgumentNullException(nameof(instanceId));");
+        sb.AppendLine("            this._client = client ?? throw new global::System.ArgumentNullException(nameof(client));");
+        sb.AppendLine("            this._instanceId = instanceId ?? throw new global::System.ArgumentNullException(nameof(instanceId));");
         sb.AppendLine("        }");
 
         foreach (var method in service.Methods.Array)
@@ -159,13 +159,13 @@ internal static class ProxyGenerator
             {
                 typeArgs = $"<{returnType}>";
                 callArgs = $"\"{svc}\", \"{rpc}\", {ctArg}";
-                callArgsInst = $"\"{svc}\", _instanceId, \"{rpc}\", {ctArg}";
+                callArgsInst = $"\"{svc}\", this._instanceId!, \"{rpc}\", {ctArg}";
             }
             else
             {
                 typeArgs = "<object>";
                 callArgs = $"\"{svc}\", \"{rpc}\", new object(), {ctArg}";
-                callArgsInst = $"\"{svc}\", _instanceId, \"{rpc}\", new object(), {ctArg}";
+                callArgsInst = $"\"{svc}\", this._instanceId!, \"{rpc}\", new object(), {ctArg}";
             }
         }
         else if (requestParameters.Count == 1)
@@ -173,7 +173,7 @@ internal static class ProxyGenerator
             var p = requestParameters[0];
             typeArgs = hasReturn ? $"<{p.Type}, {returnType}>" : $"<{p.Type}>";
             callArgs = $"\"{svc}\", \"{rpc}\", {p.Name}, {ctArg}";
-            callArgsInst = $"\"{svc}\", _instanceId, \"{rpc}\", {p.Name}, {ctArg}";
+            callArgsInst = $"\"{svc}\", this._instanceId!, \"{rpc}\", {p.Name}, {ctArg}";
         }
         else
         {
@@ -192,10 +192,10 @@ internal static class ProxyGenerator
 
             typeArgs = hasReturn ? $"<({tupleTypes}), {returnType}>" : $"<({tupleTypes})>";
             callArgs = $"\"{svc}\", \"{rpc}\", ({tupleValues}), {ctArg}";
-            callArgsInst = $"\"{svc}\", _instanceId, \"{rpc}\", ({tupleValues}), {ctArg}";
+            callArgsInst = $"\"{svc}\", this._instanceId!, \"{rpc}\", ({tupleValues}), {ctArg}";
         }
 
-        return $"(_instanceId is null ? _client.InvokeAsync{typeArgs}({callArgs}) : _client.InvokeOnInstanceAsync{typeArgs}({callArgsInst}))";
+        return $"(this._instanceId is null ? this._client.InvokeAsync{typeArgs}({callArgs}) : this._client.InvokeOnInstanceAsync{typeArgs}({callArgsInst}))";
     }
 
     /// <summary>
@@ -261,8 +261,11 @@ internal static class ProxyGenerator
                 // {StripI(InterfaceName)}Proxy — derived from SubService.QualifiedInterfaceName.
                 var info = method.SubService!;
                 var subProxyType = ProxyGenerationHelpers.BuildSubProxyTypeName(info.QualifiedInterfaceName);
-                sb.AppendLine($"            var __handle = await {invocation};");
-                sb.AppendLine($"            return new {subProxyType}(_client, __handle.InstanceId);");
+                var handleName = ProxyGenerationHelpers.UniqueGeneratedLocalName(
+                    method.Parameters,
+                    "__sharpc_handle");
+                sb.AppendLine($"            var {handleName} = await {invocation};");
+                sb.AppendLine($"            return new {subProxyType}(this._client, {handleName}.InstanceId);");
                 break;
             }
         }

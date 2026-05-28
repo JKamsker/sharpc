@@ -15,15 +15,15 @@ namespace Snap.RefOut
 
         public RefOutSnapProxy(global::ShaRPC.Core.Client.IShaRpcClient client)
         {
-            _client = client ?? throw new global::System.ArgumentNullException(nameof(client));
-            _instanceId = null;
+            this._client = client ?? throw new global::System.ArgumentNullException(nameof(client));
+            this._instanceId = null;
         }
 
         /// <summary>Constructs a proxy bound to a specific server-side instance.</summary>
         public RefOutSnapProxy(global::ShaRPC.Core.Client.IShaRpcClient client, string instanceId)
         {
-            _client = client ?? throw new global::System.ArgumentNullException(nameof(client));
-            _instanceId = instanceId ?? throw new global::System.ArgumentNullException(nameof(instanceId));
+            this._client = client ?? throw new global::System.ArgumentNullException(nameof(client));
+            this._instanceId = instanceId ?? throw new global::System.ArgumentNullException(nameof(instanceId));
         }
 
         public void BadOut(out int x)
@@ -33,12 +33,12 @@ namespace Snap.RefOut
 
         public async global::System.Threading.Tasks.Task<int> GoodAsync(int a)
         {
-            return await (_instanceId is null ? _client.InvokeAsync<int, int>("IRefOutSnap", "GoodAsync", a, default) : _client.InvokeOnInstanceAsync<int, int>("IRefOutSnap", _instanceId, "GoodAsync", a, default));
+            return await (this._instanceId is null ? this._client.InvokeAsync<int, int>("IRefOutSnap", "GoodAsync", a, default) : this._client.InvokeOnInstanceAsync<int, int>("IRefOutSnap", this._instanceId!, "GoodAsync", a, default));
         }
 
         public async global::System.Threading.Tasks.Task<int> GoodAsync(int a, global::System.Threading.CancellationToken ct = default)
         {
-            return await (_instanceId is null ? _client.InvokeAsync<int, int>("IRefOutSnap", "GoodAsync", a, ct) : _client.InvokeOnInstanceAsync<int, int>("IRefOutSnap", _instanceId, "GoodAsync", a, ct));
+            return await (this._instanceId is null ? this._client.InvokeAsync<int, int>("IRefOutSnap", "GoodAsync", a, ct) : this._client.InvokeOnInstanceAsync<int, int>("IRefOutSnap", this._instanceId!, "GoodAsync", a, ct));
         }
     }
 }
