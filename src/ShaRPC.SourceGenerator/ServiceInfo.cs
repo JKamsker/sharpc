@@ -205,6 +205,12 @@ internal static class NamingHelpers
     /// Projects a method name onto its async sibling form. Already-Async names are unchanged,
     /// otherwise the suffix is appended.
     /// </summary>
-    public static string AsyncSiblingMethodName(string name) =>
-        name.EndsWith("Async", System.StringComparison.Ordinal) ? name : name + "Async";
+    public static string AsyncSiblingMethodName(string name)
+    {
+        var unescapedName = IdentifierHelpers.UnescapeIdentifier(name);
+        var siblingName = unescapedName.EndsWith("Async", System.StringComparison.Ordinal)
+            ? unescapedName
+            : unescapedName + "Async";
+        return IdentifierHelpers.EscapeIdentifier(siblingName);
+    }
 }

@@ -39,6 +39,36 @@ public class ReviewedAsyncSiblingProjectionTests
             .Should().ContainSingle();
     }
 
+    [Fact]
+    public void VerbatimKeywordProjection_CollidingWithRegularAsyncName_FiresSHARPC004()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading;
+            using System.Threading.Tasks;
+
+            namespace AsyncSibling.KeywordCollision
+            {
+                [ShaRpcService]
+                public interface IKeywords
+                {
+                    int @class();
+                    Task<int> classAsync(CancellationToken ct = default);
+                }
+            }
+            """;
+
+        var (assembly, runResult) = Compile(source);
+
+        runResult.Diagnostics.Should().Contain(d => d.Id == "SHARPC004" &&
+            d.GetMessage().Contains("classAsync"));
+
+        var proxy = assembly.GetType("AsyncSibling.KeywordCollision.KeywordsProxy")!;
+        proxy.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .Where(m => m.Name == "classAsync")
+            .Should().ContainSingle();
+    }
+
     private static (Assembly Assembly, GeneratorDriverRunResult RunResult) Compile(string source)
     {
         var compilation = GeneratorTestHelper.CreateCompilation(source);

@@ -158,7 +158,7 @@ internal static class AsyncSiblingProjector
         EquatableArray<ParameterModel> parameters,
         CancellationToken ct)
     {
-        var sb = new StringBuilder(methodName);
+        var sb = new StringBuilder(IdentifierHelpers.UnescapeIdentifier(methodName));
         sb.Append('(');
         for (var i = 0; i < parameters.Count; i++)
         {

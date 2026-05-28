@@ -11,6 +11,11 @@ internal static class IdentifierHelpers
         return kind == SyntaxKind.None ? name : "@" + name;
     }
 
+    public static string UnescapeIdentifier(string name) =>
+        name.StartsWith("@", System.StringComparison.Ordinal)
+            ? name.Substring(1)
+            : name;
+
     public static string EscapeNamespace(string namespaceName)
     {
         if (string.IsNullOrEmpty(namespaceName))
