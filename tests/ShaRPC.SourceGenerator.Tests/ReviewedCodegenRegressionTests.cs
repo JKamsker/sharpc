@@ -186,6 +186,43 @@ public class ReviewedCodegenRegressionTests
         dispatcher.Should().Contain("case " + methodLiteral + ":");
     }
 
+    [Fact]
+    public void CustomWireNames_WithBackslashesAndUnicodeSeparators_EscapeEveryGeneratedLiteral()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading.Tasks;
+
+            namespace Regress.SlashedUnicodeWireNames
+            {
+                [ShaRpcService(Name = "svc\\\u2028name")]
+                public interface IBackslashNames
+                {
+                    [ShaRpcMethod(Name = "method\\\u2029name")]
+                    Task<int> GetAsync();
+                }
+            }
+            """;
+
+        var (final, runResult) = Run(source);
+        AssertCompiles(final);
+
+        const string serviceLiteral = @"""svc\\\u2028name""";
+        const string methodLiteral = @"""method\\\u2029name""";
+        var generated = runResult.Results.Single().GeneratedSources;
+        var proxy = generated
+            .Single(g => g.HintName.EndsWith("IBackslashNames.ShaRpcProxy.g.cs"))
+            .SourceText.ToString();
+        proxy.Should().Contain(serviceLiteral);
+        proxy.Should().Contain(methodLiteral);
+
+        var dispatcher = generated
+            .Single(g => g.HintName.EndsWith("IBackslashNames.ShaRpcDispatcher.g.cs"))
+            .SourceText.ToString();
+        dispatcher.Should().Contain(serviceLiteral);
+        dispatcher.Should().Contain("case " + methodLiteral + ":");
+    }
+
     private static (CSharpCompilation Final, GeneratorDriverRunResult RunResult) Run(string source)
     {
         var compilation = GeneratorTestHelper.CreateCompilation(source);

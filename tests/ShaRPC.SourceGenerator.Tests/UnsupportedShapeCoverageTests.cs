@@ -107,6 +107,39 @@ public class UnsupportedShapeCoverageTests
         dispatcher.Should().NotContain("case \"Inspect\":");
     }
 
+    [Fact]
+    public void RefReadonlyParameter_ProducesSHARPC002_AndPreservesProxyStubSignature()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+
+            namespace Regress.UnsupportedCoverage
+            {
+                [ShaRpcService]
+                public interface IRefReadonlyParameter
+                {
+                    void Inspect(ref readonly int value);
+                }
+            }
+            """;
+
+        var (_, runResult) = Compile(source);
+
+        runResult.Diagnostics.Should().Contain(d => d.Id == "SHARPC002" &&
+            d.GetMessage().Contains("parameter 'value' uses an unsupported pass-by-reference kind"));
+
+        var generated = runResult.Results.Single().GeneratedSources;
+        var proxy = generated
+            .Single(g => g.HintName.EndsWith("IRefReadonlyParameter.ShaRpcProxy.g.cs"))
+            .SourceText.ToString();
+        proxy.Should().Contain("public void Inspect(ref readonly int value)");
+
+        var dispatcher = generated
+            .Single(g => g.HintName.EndsWith("IRefReadonlyParameter.ShaRpcDispatcher.g.cs"))
+            .SourceText.ToString();
+        dispatcher.Should().NotContain("case \"Inspect\":");
+    }
+
     private static (Compilation Compilation, GeneratorDriverRunResult RunResult) Compile(string source)
     {
         var compilation = GeneratorTestHelper.CreateCompilation(source);

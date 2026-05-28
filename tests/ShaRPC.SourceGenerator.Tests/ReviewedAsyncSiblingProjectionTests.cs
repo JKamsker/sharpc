@@ -100,6 +100,40 @@ public class ReviewedAsyncSiblingProjectionTests
             .Should().HaveCount(2);
     }
 
+    [Fact]
+    public void InheritedSyncMethod_CollidingWithDerivedAsyncMethod_FiresSHARPC004()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading;
+            using System.Threading.Tasks;
+
+            namespace AsyncSibling.InheritedCollision
+            {
+                public interface IBase
+                {
+                    int Fetch(int id);
+                }
+
+                [ShaRpcService]
+                public interface IDerived : IBase
+                {
+                    Task<int> FetchAsync(int id, CancellationToken ct = default);
+                }
+            }
+            """;
+
+        var (assembly, runResult) = Compile(source);
+
+        runResult.Diagnostics.Should().Contain(d => d.Id == "SHARPC004" &&
+            d.GetMessage().Contains("FetchAsync"));
+
+        var proxy = assembly.GetType("AsyncSibling.InheritedCollision.DerivedProxy")!;
+        proxy.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .Where(m => m.Name == "FetchAsync")
+            .Should().ContainSingle();
+    }
+
     private static (Assembly Assembly, GeneratorDriverRunResult RunResult) Compile(string source)
     {
         var compilation = GeneratorTestHelper.CreateCompilation(source);
