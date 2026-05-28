@@ -93,6 +93,7 @@ internal static class ServiceModelFactory
         var methodLocations = new List<DiagnosticLocation>();
         var methodDiagnostics = new List<MethodDiagnostic>();
         var seenSignatures = new Dictionary<string, IMethodSymbol>(StringComparer.Ordinal);
+        var seenSignatureIndexes = new Dictionary<string, int>(StringComparer.Ordinal);
         var validationCache = new RpcTypeValidationCache();
 
         foreach (var methodSymbol in EnumerateMethods(interfaceSymbol, ct))
@@ -129,9 +130,12 @@ internal static class ServiceModelFactory
                         qualifiedInterfaceName);
                 }
 
+                var existingIndex = seenSignatureIndexes[sigKey];
+                methods[existingIndex] = methods[existingIndex] with { RequiresDispatcherReceiverCast = true };
                 continue;
             }
             seenSignatures[sigKey] = methodSymbol;
+            seenSignatureIndexes[sigKey] = methods.Count;
 
             var method = MethodModelFactory.Build(
                 displayName,

@@ -183,7 +183,10 @@ internal static class DispatcherGenerator
             }
         }
 
-        var call = $"(({method.ExplicitImplementationType}){receiver}).{method.Name}({argList})";
+        var target = method.RequiresDispatcherReceiverCast
+            ? $"(({method.ExplicitImplementationType}){receiver})"
+            : receiver;
+        var call = $"{target}.{method.Name}({argList})";
 
         switch (method.ReturnKind)
         {
