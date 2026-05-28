@@ -34,7 +34,7 @@ internal static class GeneratedTypeCollisionValidator
                 dispatcher);
         }
 
-        if (NamingHelpers.CanGenerateAsyncSiblingInterface(model.InterfaceName))
+        if (WillGenerateAsyncSiblingInterface(model, ct))
         {
             var siblingName = NamingHelpers.AsyncSiblingInterfaceName(model.InterfaceName);
             var sibling = new ExistingTypeKey(model.Namespace, siblingName);
@@ -57,6 +57,17 @@ internal static class GeneratedTypeCollisionValidator
         }
 
         return result;
+    }
+
+    private static bool WillGenerateAsyncSiblingInterface(ServiceModel model, CancellationToken ct)
+    {
+        if (!NamingHelpers.CanGenerateAsyncSiblingInterface(model.InterfaceName))
+        {
+            return false;
+        }
+
+        var (siblings, _) = AsyncSiblingProjector.Compute(model, ct);
+        return !siblings.IsEmpty;
     }
 
     private static ServiceResult RejectedService(

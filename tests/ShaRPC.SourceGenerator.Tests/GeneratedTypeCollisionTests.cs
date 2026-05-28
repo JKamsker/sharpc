@@ -123,6 +123,38 @@ public class GeneratedTypeCollisionTests
     }
 
     [Fact]
+    public void ExistingAsyncSiblingInterface_DoesNotRejectServiceWhenNoSiblingWillBeGenerated()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+
+            namespace Regress.GeneratedTypeCollision
+            {
+                public interface IFooAsync
+                {
+                }
+
+                [ShaRpcService]
+                public interface IFoo
+                {
+                    ref int Bad();
+                }
+            }
+            """;
+
+        var runResult = Run(source);
+
+        runResult.Diagnostics.Should().NotContain(d => d.Id == "SHARPC003" &&
+            d.GetMessage().Contains("generated async sibling interface 'IFooAsync' would collide"));
+        runResult.Diagnostics.Should().Contain(d => d.Id == "SHARPC002" &&
+            d.GetMessage().Contains("return value uses an unsupported pass-by-reference kind"));
+        runResult.Results.Single().GeneratedSources
+            .Should().Contain(g => g.HintName.Contains("IFoo.ShaRpcProxy.g.cs"));
+        runResult.Results.Single().GeneratedSources
+            .Should().NotContain(g => g.HintName.Contains("IFoo.ShaRpcAsync.g.cs"));
+    }
+
+    [Fact]
     public void ExistingGeneratedExtensionsType_ProducesSHARPC003_AndServicesAreSkipped()
     {
         const string source = """
