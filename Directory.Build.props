@@ -7,7 +7,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <Authors>ShaRPC Contributors</Authors>
+    <Authors>Jonas Kamsker</Authors>
     <Company>ShaRPC</Company>
     <Product>ShaRPC</Product>
     <Description>High-performance, transport-agnostic RPC framework for C#</Description>
