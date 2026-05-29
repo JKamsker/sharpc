@@ -96,7 +96,7 @@ public sealed class ShaRpcClient : IShaRpcClient
         using var received = await SendRequestAsync(service, method, request, instanceId, ct);
     }
 
-    private async Task<ReceivedResponse> SendRequestAsync<TRequest>(
+    private Task<ReceivedResponse> SendRequestAsync<TRequest>(
         string service,
         string method,
         TRequest request,
@@ -110,10 +110,13 @@ public sealed class ShaRpcClient : IShaRpcClient
         // Serialize the argument straight into the frame buffer instead of into a separate pooled
         // payload that then has to be copied in behind the envelope.
         var frame = MessageFramer.FrameRequest(_serializer, messageId, MessageType.Request, envelope, request);
-        return await SendFrameAndAwaitAsync(messageId, frame, connection, service, method, ct);
+
+        // Hand the awaiter's task straight back rather than awaiting it: this prologue is synchronous,
+        // so dropping the async state machine saves a Task plus its state-machine box on every call.
+        return SendFrameAndAwaitAsync(messageId, frame, connection, service, method, ct);
     }
 
-    private async Task<ReceivedResponse> SendRequestAsync(
+    private Task<ReceivedResponse> SendRequestAsync(
         string service,
         string method,
         string? instanceId,
@@ -124,7 +127,7 @@ public sealed class ShaRpcClient : IShaRpcClient
         var envelope = CreateEnvelope(messageId, service, method, instanceId);
 
         var frame = MessageFramer.FrameMessage(_serializer, messageId, MessageType.Request, envelope, ReadOnlySpan<byte>.Empty);
-        return await SendFrameAndAwaitAsync(messageId, frame, connection, service, method, ct);
+        return SendFrameAndAwaitAsync(messageId, frame, connection, service, method, ct);
     }
 
     private IConnection EnsureConnected()
@@ -173,7 +176,41 @@ public sealed class ShaRpcClient : IShaRpcClient
                 await connection.SendAsync(frame.Memory, ct);
             }
 
-            var received = await AwaitResponseAsync(tcs, service, method, ct);
+            // A linked source is only needed when the caller's token can actually fire; otherwise a
+            // plain source carrying just the timeout avoids the linking overhead.
+            using var timeoutCts = ct.CanBeCanceled
+                ? CancellationTokenSource.CreateLinkedTokenSource(ct)
+                : new CancellationTokenSource();
+            timeoutCts.CancelAfter(_timeout);
+
+            // Completing the pending TCS from the token registration—rather than racing tcs.Task against
+            // Task.Delay through Task.WhenAny—avoids allocating the delay task, its timer, and the WhenAny
+            // array on every call. The static callback plus state argument keeps the registration closure-free.
+            ReceivedResponse received;
+            using (timeoutCts.Token.Register(
+                static state => ((TaskCompletionSource<ReceivedResponse>)state!).TrySetCanceled(),
+                tcs))
+            {
+                try
+                {
+                    received = await tcs.Task;
+                }
+                catch (OperationCanceledException)
+                {
+                    // The linked token fires for both the caller's cancellation and the timeout;
+                    // re-throw the former as-is and map the latter to a timeout.
+                    ct.ThrowIfCancellationRequested();
+                    throw new ShaRpcTimeoutException($"Request to {service}.{method} timed out.");
+                }
+            }
+
+            if (!received.Response.IsSuccess)
+            {
+                throw new ShaRpcRemoteException(
+                    received.Response.ErrorMessage ?? "Unknown error",
+                    received.Response.ErrorType ?? "Unknown");
+            }
+
             consumed = true;
             return received;
         }
@@ -185,50 +222,6 @@ public sealed class ShaRpcClient : IShaRpcClient
                 DisposeResultWhenAvailable(tcs.Task);
             }
         }
-    }
-
-    private async Task<ReceivedResponse> AwaitResponseAsync(
-        TaskCompletionSource<ReceivedResponse> tcs,
-        string service,
-        string method,
-        CancellationToken ct)
-    {
-        // A linked source is only needed when the caller's token can actually fire; otherwise a
-        // plain source carrying just the timeout avoids the linking overhead.
-        using var timeoutCts = ct.CanBeCanceled
-            ? CancellationTokenSource.CreateLinkedTokenSource(ct)
-            : new CancellationTokenSource();
-        timeoutCts.CancelAfter(_timeout);
-
-        ReceivedResponse received;
-        // Completing the pending TCS from the token registration—rather than racing tcs.Task against
-        // Task.Delay through Task.WhenAny—avoids allocating the delay task, its timer, and the WhenAny
-        // array on every call. The static callback plus state argument keeps the registration closure-free.
-        using (timeoutCts.Token.Register(
-            static state => ((TaskCompletionSource<ReceivedResponse>)state!).TrySetCanceled(),
-            tcs))
-        {
-            try
-            {
-                received = await tcs.Task;
-            }
-            catch (OperationCanceledException)
-            {
-                // The linked token fires for both the caller's cancellation and the timeout;
-                // re-throw the former as-is and map the latter to a timeout.
-                ct.ThrowIfCancellationRequested();
-                throw new ShaRpcTimeoutException($"Request to {service}.{method} timed out.");
-            }
-        }
-
-        if (!received.Response.IsSuccess)
-        {
-            throw new ShaRpcRemoteException(
-                received.Response.ErrorMessage ?? "Unknown error",
-                received.Response.ErrorType ?? "Unknown");
-        }
-
-        return received;
     }
 
     /// <summary>
