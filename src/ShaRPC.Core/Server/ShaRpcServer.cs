@@ -156,64 +156,68 @@ public sealed class ShaRpcServer : IShaRpcServer
         // Safety invariant: `payload` is a zero-copy slice of the frame buffer (`data`), which the
         // caller keeps alive for the duration of this method. Dispatchers deserialize their
         // arguments synchronously from `payload` up front and never retain the memory, so the slice
-        // never outlives `data`.
+        // never outlives `data`. The result is serialized into a separate frame buffer, not `data`.
         var request = _serializer.Deserialize<RpcRequest>(envelope);
-        RpcResponse response;
-        Payload? resultPayload = null;
+
+        using var responseFrame = await BuildResponseFrameAsync(request, messageId, payload, registry, ct);
+        await connection.SendAsync(responseFrame.Memory, ct);
+    }
+
+    /// <summary>
+    /// Builds the response frame for a request. On the success path the response envelope is written
+    /// first and the dispatcher serializes the method result straight into the trailing payload, so
+    /// there is no separate result buffer to allocate and copy. If the dispatcher throws (unknown
+    /// method, instance not found, or a user exception) the half-built frame is discarded and a fresh
+    /// error frame is returned instead. The caller owns the returned <see cref="Payload"/>.
+    /// </summary>
+    private async Task<Payload> BuildResponseFrameAsync(
+        RpcRequest request,
+        int messageId,
+        ReadOnlyMemory<byte> payload,
+        IInstanceRegistry registry,
+        CancellationToken ct)
+    {
+        if (!_dispatchers.TryGetValue(request.ServiceName, out var dispatcher))
+        {
+            return BuildErrorFrame(messageId, $"Service '{request.ServiceName}' not found.", nameof(ShaRpcNotFoundException));
+        }
+
+        using var writer = new PooledBufferWriter(MessageFramer.HeaderSize + MessageFramer.EnvelopeLengthSize);
+        MessageFramer.WriteFramePrefix(writer, messageId, MessageType.Response);
+        var envelopeStart = writer.WrittenCount;
+        _serializer.Serialize(writer, new RpcResponse { MessageId = messageId, IsSuccess = true });
+        var envelopeLength = writer.WrittenCount - envelopeStart;
 
         try
         {
-            if (!_dispatchers.TryGetValue(request.ServiceName, out var dispatcher))
-            {
-                response = new RpcResponse
-                {
-                    MessageId = messageId,
-                    IsSuccess = false,
-                    ErrorMessage = $"Service '{request.ServiceName}' not found.",
-                    ErrorType = nameof(ShaRpcNotFoundException)
-                };
-            }
-            else
-            {
-                // Route by instance: a non-null InstanceId means the call targets a
-                // server-side sub-service that the client got a handle to earlier.
-                resultPayload = request.InstanceId is null
-                    ? await dispatcher.DispatchAsync(request.MethodName, payload, _serializer, registry, ct)
-                    : await dispatcher.DispatchOnInstanceAsync(request.InstanceId, request.MethodName, payload, _serializer, registry, ct);
-
-                response = new RpcResponse
-                {
-                    MessageId = messageId,
-                    IsSuccess = true
-                };
-            }
+            // Route by instance: a non-null InstanceId means the call targets a server-side
+            // sub-service that the client got a handle to earlier.
+            await (request.InstanceId is null
+                ? dispatcher.DispatchAsync(request.MethodName, payload, _serializer, registry, writer, ct)
+                : dispatcher.DispatchOnInstanceAsync(request.InstanceId, request.MethodName, payload, _serializer, registry, writer, ct));
         }
         catch (Exception ex)
         {
-            response = new RpcResponse
+            // The success envelope already written to `writer` is abandoned; the using disposes it.
+            return BuildErrorFrame(messageId, ex.Message, ex.GetType().Name);
+        }
+
+        return MessageFramer.FinishFrame(writer, envelopeLength);
+    }
+
+    private Payload BuildErrorFrame(int messageId, string errorMessage, string errorType) =>
+        MessageFramer.FrameMessage(
+            _serializer,
+            messageId,
+            MessageType.Error,
+            new RpcResponse
             {
                 MessageId = messageId,
                 IsSuccess = false,
-                ErrorMessage = ex.Message,
-                ErrorType = ex.GetType().Name
-            };
-        }
-
-        try
-        {
-            var responseType = response.IsSuccess ? MessageType.Response : MessageType.Error;
-            // The result payload is appended as raw trailing bytes after the serialized envelope,
-            // copied into the frame before resultPayload is disposed in the finally below.
-            using var responseFrame = resultPayload is null
-                ? MessageFramer.FrameMessage(_serializer, messageId, responseType, response, ReadOnlySpan<byte>.Empty)
-                : MessageFramer.FrameMessage(_serializer, messageId, responseType, response, resultPayload.Span);
-            await connection.SendAsync(responseFrame.Memory, ct);
-        }
-        finally
-        {
-            resultPayload?.Dispose();
-        }
-    }
+                ErrorMessage = errorMessage,
+                ErrorType = errorType,
+            },
+            ReadOnlySpan<byte>.Empty);
 
     public async ValueTask DisposeAsync()
     {

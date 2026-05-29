@@ -85,7 +85,7 @@ public class ReviewedNestedValueTaskRuntimeTests
             assembly.GetType("Reviewed.NestedValueTask.RootDispatcher")!,
             root)!;
         using var openPayload = serializer.SerializeToPayload("alpha");
-        using var handleReply = await rootDispatcher.DispatchAsync(
+        using var handleReply = await rootDispatcher.DispatchToPayloadAsync(
             "OpenAsync",
             openPayload.Memory,
             serializer,
@@ -102,7 +102,7 @@ public class ReviewedNestedValueTaskRuntimeTests
             assembly.GetType("Reviewed.NestedValueTask.SubDispatcher")!,
             sub)!;
         using var countPayload = serializer.SerializeToPayload(9);
-        using var countReply = await subDispatcher.DispatchOnInstanceAsync(
+        using var countReply = await subDispatcher.DispatchOnInstanceToPayloadAsync(
             handle.InstanceId,
             "CountAsync",
             countPayload.Memory,

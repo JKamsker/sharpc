@@ -19,7 +19,7 @@ namespace Snap.Mixed
         public string ServiceName => "IMix";
 
 #pragma warning disable CS1998
-        public async global::System.Threading.Tasks.Task<global::ShaRPC.Core.Buffers.Payload> DispatchAsync(string method, global::System.ReadOnlyMemory<byte> payload, global::ShaRPC.Core.Serialization.ISerializer serializer, global::ShaRPC.Core.Server.IInstanceRegistry registry, global::System.Threading.CancellationToken ct = default)
+        public async global::System.Threading.Tasks.Task DispatchAsync(string method, global::System.ReadOnlyMemory<byte> payload, global::ShaRPC.Core.Serialization.ISerializer serializer, global::ShaRPC.Core.Server.IInstanceRegistry registry, global::System.Buffers.IBufferWriter<byte> output, global::System.Threading.CancellationToken ct = default)
 #pragma warning restore CS1998
         {
             switch (method)
@@ -27,24 +27,26 @@ namespace Snap.Mixed
                 case "GetNameAsync":
                 {
                     var result = await _service.GetNameAsync();
-                    return global::ShaRPC.Core.Serialization.SerializerExtensions.SerializeToPayload(serializer, result);
+                    serializer.Serialize(output, result);
+                    return;
                 }
                 case "SaveAsync":
                 {
                     var arg = serializer.Deserialize<string>(payload);
                     await _service.SaveAsync(arg);
-                    return global::ShaRPC.Core.Buffers.Payload.Empty;
+                    return;
                 }
                 case "SyncAdd":
                 {
                     var args = serializer.Deserialize<(int, int)>(payload);
                     var result = _service.SyncAdd(args.Item1, args.Item2);
-                    return global::ShaRPC.Core.Serialization.SerializerExtensions.SerializeToPayload(serializer, result);
+                    serializer.Serialize(output, result);
+                    return;
                 }
                 case "SyncPing":
                 {
                     _service.SyncPing();
-                    return global::ShaRPC.Core.Buffers.Payload.Empty;
+                    return;
                 }
                 default:
                     throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException("Method '" + method + "' not found on service 'IMix'.");
@@ -52,7 +54,7 @@ namespace Snap.Mixed
         }
 
 #pragma warning disable CS1998
-        public async global::System.Threading.Tasks.Task<global::ShaRPC.Core.Buffers.Payload> DispatchOnInstanceAsync(string instanceId, string method, global::System.ReadOnlyMemory<byte> payload, global::ShaRPC.Core.Serialization.ISerializer serializer, global::ShaRPC.Core.Server.IInstanceRegistry registry, global::System.Threading.CancellationToken ct = default)
+        public async global::System.Threading.Tasks.Task DispatchOnInstanceAsync(string instanceId, string method, global::System.ReadOnlyMemory<byte> payload, global::ShaRPC.Core.Serialization.ISerializer serializer, global::ShaRPC.Core.Server.IInstanceRegistry registry, global::System.Buffers.IBufferWriter<byte> output, global::System.Threading.CancellationToken ct = default)
 #pragma warning restore CS1998
         {
             if (!registry.TryGet("IMix", instanceId, out var __obj) || __obj is not global::Snap.Mixed.IMix __inst)
@@ -64,24 +66,26 @@ namespace Snap.Mixed
                 case "GetNameAsync":
                 {
                     var result = await __inst.GetNameAsync();
-                    return global::ShaRPC.Core.Serialization.SerializerExtensions.SerializeToPayload(serializer, result);
+                    serializer.Serialize(output, result);
+                    return;
                 }
                 case "SaveAsync":
                 {
                     var arg = serializer.Deserialize<string>(payload);
                     await __inst.SaveAsync(arg);
-                    return global::ShaRPC.Core.Buffers.Payload.Empty;
+                    return;
                 }
                 case "SyncAdd":
                 {
                     var args = serializer.Deserialize<(int, int)>(payload);
                     var result = __inst.SyncAdd(args.Item1, args.Item2);
-                    return global::ShaRPC.Core.Serialization.SerializerExtensions.SerializeToPayload(serializer, result);
+                    serializer.Serialize(output, result);
+                    return;
                 }
                 case "SyncPing":
                 {
                     __inst.SyncPing();
-                    return global::ShaRPC.Core.Buffers.Payload.Empty;
+                    return;
                 }
                 default:
                     throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException("Method '" + method + "' not found on service 'IMix'.");

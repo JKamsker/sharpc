@@ -19,7 +19,7 @@ namespace Snap.Inherit
         public string ServiceName => "IDerived";
 
 #pragma warning disable CS1998
-        public async global::System.Threading.Tasks.Task<global::ShaRPC.Core.Buffers.Payload> DispatchAsync(string method, global::System.ReadOnlyMemory<byte> payload, global::ShaRPC.Core.Serialization.ISerializer serializer, global::ShaRPC.Core.Server.IInstanceRegistry registry, global::System.Threading.CancellationToken ct = default)
+        public async global::System.Threading.Tasks.Task DispatchAsync(string method, global::System.ReadOnlyMemory<byte> payload, global::ShaRPC.Core.Serialization.ISerializer serializer, global::ShaRPC.Core.Server.IInstanceRegistry registry, global::System.Buffers.IBufferWriter<byte> output, global::System.Threading.CancellationToken ct = default)
 #pragma warning restore CS1998
         {
             switch (method)
@@ -27,13 +27,15 @@ namespace Snap.Inherit
                 case "DerivedAsync":
                 {
                     var result = await _service.DerivedAsync();
-                    return global::ShaRPC.Core.Serialization.SerializerExtensions.SerializeToPayload(serializer, result);
+                    serializer.Serialize(output, result);
+                    return;
                 }
                 case "BaseAsync":
                 {
                     var arg = serializer.Deserialize<int>(payload);
                     var result = await _service.BaseAsync(arg);
-                    return global::ShaRPC.Core.Serialization.SerializerExtensions.SerializeToPayload(serializer, result);
+                    serializer.Serialize(output, result);
+                    return;
                 }
                 default:
                     throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException("Method '" + method + "' not found on service 'IDerived'.");
@@ -41,7 +43,7 @@ namespace Snap.Inherit
         }
 
 #pragma warning disable CS1998
-        public async global::System.Threading.Tasks.Task<global::ShaRPC.Core.Buffers.Payload> DispatchOnInstanceAsync(string instanceId, string method, global::System.ReadOnlyMemory<byte> payload, global::ShaRPC.Core.Serialization.ISerializer serializer, global::ShaRPC.Core.Server.IInstanceRegistry registry, global::System.Threading.CancellationToken ct = default)
+        public async global::System.Threading.Tasks.Task DispatchOnInstanceAsync(string instanceId, string method, global::System.ReadOnlyMemory<byte> payload, global::ShaRPC.Core.Serialization.ISerializer serializer, global::ShaRPC.Core.Server.IInstanceRegistry registry, global::System.Buffers.IBufferWriter<byte> output, global::System.Threading.CancellationToken ct = default)
 #pragma warning restore CS1998
         {
             if (!registry.TryGet("IDerived", instanceId, out var __obj) || __obj is not global::Snap.Inherit.IDerived __inst)
@@ -53,13 +55,15 @@ namespace Snap.Inherit
                 case "DerivedAsync":
                 {
                     var result = await __inst.DerivedAsync();
-                    return global::ShaRPC.Core.Serialization.SerializerExtensions.SerializeToPayload(serializer, result);
+                    serializer.Serialize(output, result);
+                    return;
                 }
                 case "BaseAsync":
                 {
                     var arg = serializer.Deserialize<int>(payload);
                     var result = await __inst.BaseAsync(arg);
-                    return global::ShaRPC.Core.Serialization.SerializerExtensions.SerializeToPayload(serializer, result);
+                    serializer.Serialize(output, result);
+                    return;
                 }
                 default:
                     throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException("Method '" + method + "' not found on service 'IDerived'.");

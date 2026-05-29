@@ -129,7 +129,13 @@ public static class MessageFramer
         return FinishFrame(writer, envelopeLength);
     }
 
-    private static void WriteFramePrefix(PooledBufferWriter writer, int messageId, MessageType type)
+    /// <summary>
+    /// Reserves the frame header and envelope-length prefix at the head of <paramref name="writer"/>.
+    /// Callers serialize the envelope next (recording its length) and finish with
+    /// <see cref="FinishFrame"/>, which patches both length fields. Lets the server frame a response
+    /// envelope and have the dispatcher serialize the result straight into the same writer.
+    /// </summary>
+    internal static void WriteFramePrefix(PooledBufferWriter writer, int messageId, MessageType type)
     {
         // Reserve the header + envelope-length prefix; both length fields are patched in by FinishFrame.
         var prefix = writer.GetSpan(HeaderSize + EnvelopeLengthSize);
@@ -138,7 +144,11 @@ public static class MessageFramer
         writer.Advance(HeaderSize + EnvelopeLengthSize);
     }
 
-    private static Payload FinishFrame(PooledBufferWriter writer, int envelopeLength)
+    /// <summary>
+    /// Detaches the written bytes as a <see cref="Payload"/> and patches the total length and the
+    /// envelope length fields reserved by <see cref="WriteFramePrefix"/>. The caller owns the result.
+    /// </summary>
+    internal static Payload FinishFrame(PooledBufferWriter writer, int envelopeLength)
     {
         var frame = writer.DetachPayload();
         var header = frame.Memory.Span;

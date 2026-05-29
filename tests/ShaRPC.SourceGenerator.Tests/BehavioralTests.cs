@@ -90,7 +90,7 @@ public class BehavioralTests
         // Two-arg method goes through tuple deserialization.
         using var payload = serializer.SerializeToPayload<ValueTuple<int, int>>(new ValueTuple<int, int>(7, 5));
         using var dispatcherCts = new CancellationTokenSource();
-        using var reply = await dispatcher.DispatchAsync("AddAsync", payload.Memory, serializer, new InstanceRegistry(), dispatcherCts.Token);
+        using var reply = await dispatcher.DispatchToPayloadAsync("AddAsync", payload.Memory, serializer, new InstanceRegistry(), dispatcherCts.Token);
         var sum = serializer.Deserialize<int>(reply.Memory);
         sum.Should().Be(12);
         impl.LastCall.Should().Be("Add(7,5)");
@@ -98,12 +98,12 @@ public class BehavioralTests
 
         // One-arg method goes through single deserialization.
         using var single = serializer.SerializeToPayload<int>(6);
-        using var reply2 = await dispatcher.DispatchAsync("SquareAsync", single.Memory, serializer, new InstanceRegistry(), CancellationToken.None);
+        using var reply2 = await dispatcher.DispatchToPayloadAsync("SquareAsync", single.Memory, serializer, new InstanceRegistry(), CancellationToken.None);
         var sq = serializer.Deserialize<int>(reply2.Memory);
         sq.Should().Be(36);
 
         // Zero-arg, void-returning method returns empty payload.
-        using var pingReply = await dispatcher.DispatchAsync("PingAsync", System.ReadOnlyMemory<byte>.Empty, serializer, new InstanceRegistry(), CancellationToken.None);
+        using var pingReply = await dispatcher.DispatchToPayloadAsync("PingAsync", System.ReadOnlyMemory<byte>.Empty, serializer, new InstanceRegistry(), CancellationToken.None);
         pingReply.Length.Should().Be(0);
         impl.PingCount.Should().Be(1);
     }
@@ -195,14 +195,14 @@ public class BehavioralTests
         var serializer = new TestJsonSerializer();
 
         using var addPayload = serializer.SerializeToPayload<ValueTuple<int, int>>(new ValueTuple<int, int>(4, 5));
-        using var reply = await dispatcher.DispatchAsync(
+        using var reply = await dispatcher.DispatchToPayloadAsync(
             "Add",
             addPayload.Memory,
             serializer,
             new InstanceRegistry(), CancellationToken.None);
         serializer.Deserialize<int>(reply.Memory).Should().Be(9);
 
-        using var pingReply = await dispatcher.DispatchAsync("Ping", System.ReadOnlyMemory<byte>.Empty, serializer, new InstanceRegistry(), CancellationToken.None);
+        using var pingReply = await dispatcher.DispatchToPayloadAsync("Ping", System.ReadOnlyMemory<byte>.Empty, serializer, new InstanceRegistry(), CancellationToken.None);
         pingReply.Length.Should().Be(0);
         syncImpl.PingCalls.Should().Be(1);
     }

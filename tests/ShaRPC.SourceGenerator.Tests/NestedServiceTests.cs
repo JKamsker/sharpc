@@ -125,7 +125,7 @@ public class NestedServiceTests
         var serializer = new TestJsonSerializer();
 
         using var labelPayload = serializer.SerializeToPayload<string>("hello");
-        using var reply = await dispatcher.DispatchAsync("GetSubAsync", labelPayload.Memory, serializer, registry, CancellationToken.None);
+        using var reply = await dispatcher.DispatchToPayloadAsync("GetSubAsync", labelPayload.Memory, serializer, registry, CancellationToken.None);
         var handle = serializer.Deserialize<ServiceHandle>(reply.Memory);
 
         handle.ServiceName.Should().Be("ISubService");
@@ -155,13 +155,13 @@ public class NestedServiceTests
         var dispatcher = (IServiceDispatcher)Activator.CreateInstance(dispatcherType, constructorSubImpl)!;
         var serializer = new TestJsonSerializer();
 
-        using var reply = await dispatcher.DispatchOnInstanceAsync(id, "CountAsync", System.ReadOnlyMemory<byte>.Empty, serializer, registry, CancellationToken.None);
+        using var reply = await dispatcher.DispatchOnInstanceToPayloadAsync(id, "CountAsync", System.ReadOnlyMemory<byte>.Empty, serializer, registry, CancellationToken.None);
         serializer.Deserialize<int>(reply.Memory).Should().Be(7,
             "instance-scoped dispatch must invoke the registry-resolved service, not the constructor service");
 
         // An unknown instance id must fail loudly with the framework's NotFound exception.
         await Assert.ThrowsAsync<ShaRPC.Core.Exceptions.ShaRpcNotFoundException>(async () =>
-            await dispatcher.DispatchOnInstanceAsync("does-not-exist", "CountAsync", System.ReadOnlyMemory<byte>.Empty, serializer, registry, CancellationToken.None));
+            await dispatcher.DispatchOnInstanceToPayloadAsync("does-not-exist", "CountAsync", System.ReadOnlyMemory<byte>.Empty, serializer, registry, CancellationToken.None));
     }
 
     [Fact]

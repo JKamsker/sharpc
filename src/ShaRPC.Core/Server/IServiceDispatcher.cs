@@ -1,4 +1,4 @@
-using ShaRPC.Core.Buffers;
+using System.Buffers;
 using ShaRPC.Core.Exceptions;
 using ShaRPC.Core.Serialization;
 
@@ -16,31 +16,35 @@ public interface IServiceDispatcher
     string ServiceName { get; }
 
     /// <summary>
-    /// Dispatches a singleton-service request to the appropriate method and returns the
-    /// serialized result. <paramref name="registry"/> is the per-connection instance
-    /// registry — dispatchers ignore it unless the method returns a sub-service interface,
+    /// Dispatches a singleton-service request to the appropriate method and serializes the result
+    /// into <paramref name="output"/>. Writing straight into the caller's buffer lets the server
+    /// append the result behind the response envelope without an intermediate buffer and copy; a
+    /// void/Task-returning method writes nothing. <paramref name="registry"/> is the per-connection
+    /// instance registry — dispatchers ignore it unless the method returns a sub-service interface,
     /// in which case they register the returned instance and serialize a
     /// <see cref="ShaRPC.Core.Protocol.ServiceHandle"/>.
     /// </summary>
-    Task<Payload> DispatchAsync(
+    Task DispatchAsync(
         string method,
         ReadOnlyMemory<byte> payload,
         ISerializer serializer,
         IInstanceRegistry registry,
+        IBufferWriter<byte> output,
         CancellationToken ct = default);
 
     /// <summary>
     /// Dispatches a call to a specific server-side instance previously registered with
-    /// <see cref="IInstanceRegistry.Register"/>. Default implementation throws — the
-    /// generator only emits an override for service dispatchers that may be reached as
-    /// sub-services.
+    /// <see cref="IInstanceRegistry.Register"/>, serializing the result into <paramref name="output"/>.
+    /// Default implementation throws — the generator only emits an override for service dispatchers
+    /// that may be reached as sub-services.
     /// </summary>
-    Task<Payload> DispatchOnInstanceAsync(
+    Task DispatchOnInstanceAsync(
         string instanceId,
         string method,
         ReadOnlyMemory<byte> payload,
         ISerializer serializer,
         IInstanceRegistry registry,
+        IBufferWriter<byte> output,
         CancellationToken ct = default) =>
         throw new ShaRpcNotFoundException(
             $"Service '{ServiceName}' does not support instance-scoped dispatch.");

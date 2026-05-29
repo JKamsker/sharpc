@@ -226,7 +226,7 @@ public class GeneratedRoundTripTests
         var h = Harness.Build(source, "RoundTrip.Errors.IThing", "RoundTrip.Errors.ThingServer");
 
         var ex = await Assert.ThrowsAsync<ShaRPC.Core.Exceptions.ShaRpcNotFoundException>(async () =>
-            await h.Dispatcher.DispatchAsync(
+            await h.Dispatcher.DispatchToPayloadAsync(
                 "NoSuchMethod", System.ReadOnlyMemory<byte>.Empty, h.Serializer, new InstanceRegistry(), CancellationToken.None));
 
         ex.Message.Should().Contain("NoSuchMethod",
@@ -519,39 +519,39 @@ public class GeneratedRoundTripTests
         public async Task<TResponse> InvokeAsync<TRequest, TResponse>(string service, string method, TRequest request, CancellationToken ct = default)
         {
             using var p = _serializer.SerializeToPayload(request);
-            using var reply = await Resolve(service).DispatchAsync(method, p.Memory, _serializer, _registry, ct);
+            using var reply = await Resolve(service).DispatchToPayloadAsync(method, p.Memory, _serializer, _registry, ct);
             return _serializer.Deserialize<TResponse>(reply.Memory);
         }
 
         public async Task<TResponse> InvokeAsync<TResponse>(string service, string method, CancellationToken ct = default)
         {
-            using var reply = await Resolve(service).DispatchAsync(method, System.ReadOnlyMemory<byte>.Empty, _serializer, _registry, ct);
+            using var reply = await Resolve(service).DispatchToPayloadAsync(method, System.ReadOnlyMemory<byte>.Empty, _serializer, _registry, ct);
             return _serializer.Deserialize<TResponse>(reply.Memory);
         }
 
         public async Task InvokeAsync<TRequest>(string service, string method, TRequest request, CancellationToken ct = default)
         {
             using var p = _serializer.SerializeToPayload(request);
-            using var reply = await Resolve(service).DispatchAsync(method, p.Memory, _serializer, _registry, ct);
+            using var reply = await Resolve(service).DispatchToPayloadAsync(method, p.Memory, _serializer, _registry, ct);
         }
 
         public async Task<TResponse> InvokeOnInstanceAsync<TRequest, TResponse>(string service, string instanceId, string method, TRequest request, CancellationToken ct = default)
         {
             using var p = _serializer.SerializeToPayload(request);
-            using var reply = await Resolve(service).DispatchOnInstanceAsync(instanceId, method, p.Memory, _serializer, _registry, ct);
+            using var reply = await Resolve(service).DispatchOnInstanceToPayloadAsync(instanceId, method, p.Memory, _serializer, _registry, ct);
             return _serializer.Deserialize<TResponse>(reply.Memory);
         }
 
         public async Task<TResponse> InvokeOnInstanceAsync<TResponse>(string service, string instanceId, string method, CancellationToken ct = default)
         {
-            using var reply = await Resolve(service).DispatchOnInstanceAsync(instanceId, method, System.ReadOnlyMemory<byte>.Empty, _serializer, _registry, ct);
+            using var reply = await Resolve(service).DispatchOnInstanceToPayloadAsync(instanceId, method, System.ReadOnlyMemory<byte>.Empty, _serializer, _registry, ct);
             return _serializer.Deserialize<TResponse>(reply.Memory);
         }
 
         public async Task InvokeOnInstanceAsync<TRequest>(string service, string instanceId, string method, TRequest request, CancellationToken ct = default)
         {
             using var p = _serializer.SerializeToPayload(request);
-            using var reply = await Resolve(service).DispatchOnInstanceAsync(instanceId, method, p.Memory, _serializer, _registry, ct);
+            using var reply = await Resolve(service).DispatchOnInstanceToPayloadAsync(instanceId, method, p.Memory, _serializer, _registry, ct);
         }
     }
 }

@@ -19,7 +19,7 @@ namespace Snap.Two
         public string ServiceName => "ITwo";
 
 #pragma warning disable CS1998
-        public async global::System.Threading.Tasks.Task<global::ShaRPC.Core.Buffers.Payload> DispatchAsync(string method, global::System.ReadOnlyMemory<byte> payload, global::ShaRPC.Core.Serialization.ISerializer serializer, global::ShaRPC.Core.Server.IInstanceRegistry registry, global::System.Threading.CancellationToken ct = default)
+        public async global::System.Threading.Tasks.Task DispatchAsync(string method, global::System.ReadOnlyMemory<byte> payload, global::ShaRPC.Core.Serialization.ISerializer serializer, global::ShaRPC.Core.Server.IInstanceRegistry registry, global::System.Buffers.IBufferWriter<byte> output, global::System.Threading.CancellationToken ct = default)
 #pragma warning restore CS1998
         {
             switch (method)
@@ -27,7 +27,8 @@ namespace Snap.Two
                 case "BAsync":
                 {
                     var result = await _service.BAsync();
-                    return global::ShaRPC.Core.Serialization.SerializerExtensions.SerializeToPayload(serializer, result);
+                    serializer.Serialize(output, result);
+                    return;
                 }
                 default:
                     throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException("Method '" + method + "' not found on service 'ITwo'.");
@@ -35,7 +36,7 @@ namespace Snap.Two
         }
 
 #pragma warning disable CS1998
-        public async global::System.Threading.Tasks.Task<global::ShaRPC.Core.Buffers.Payload> DispatchOnInstanceAsync(string instanceId, string method, global::System.ReadOnlyMemory<byte> payload, global::ShaRPC.Core.Serialization.ISerializer serializer, global::ShaRPC.Core.Server.IInstanceRegistry registry, global::System.Threading.CancellationToken ct = default)
+        public async global::System.Threading.Tasks.Task DispatchOnInstanceAsync(string instanceId, string method, global::System.ReadOnlyMemory<byte> payload, global::ShaRPC.Core.Serialization.ISerializer serializer, global::ShaRPC.Core.Server.IInstanceRegistry registry, global::System.Buffers.IBufferWriter<byte> output, global::System.Threading.CancellationToken ct = default)
 #pragma warning restore CS1998
         {
             if (!registry.TryGet("ITwo", instanceId, out var __obj) || __obj is not global::Snap.Two.ITwo __inst)
@@ -47,7 +48,8 @@ namespace Snap.Two
                 case "BAsync":
                 {
                     var result = await __inst.BAsync();
-                    return global::ShaRPC.Core.Serialization.SerializerExtensions.SerializeToPayload(serializer, result);
+                    serializer.Serialize(output, result);
+                    return;
                 }
                 default:
                     throw new global::ShaRPC.Core.Exceptions.ShaRpcNotFoundException("Method '" + method + "' not found on service 'ITwo'.");

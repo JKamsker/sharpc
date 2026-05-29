@@ -80,7 +80,7 @@ public class CustomSubServiceWireNameRuntimeTests
         var rootDispatcher = (IServiceDispatcher)Activator.CreateInstance(
             assembly.GetType("Reviewed.CustomSubWire.RootDispatcher")!,
             root)!;
-        using var handleReply = await rootDispatcher.DispatchAsync(
+        using var handleReply = await rootDispatcher.DispatchToPayloadAsync(
             "OpenAsync",
             System.ReadOnlyMemory<byte>.Empty,
             serializer,
@@ -96,7 +96,7 @@ public class CustomSubServiceWireNameRuntimeTests
             assembly.GetType("Reviewed.CustomSubWire.SubDispatcher")!,
             sub)!;
         using var countPayload = serializer.SerializeToPayload(9);
-        using var countReply = await subDispatcher.DispatchOnInstanceAsync(
+        using var countReply = await subDispatcher.DispatchOnInstanceToPayloadAsync(
             handle.InstanceId,
             "CountAsync",
             countPayload.Memory,

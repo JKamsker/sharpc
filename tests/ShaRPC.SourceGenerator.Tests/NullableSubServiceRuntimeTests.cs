@@ -87,7 +87,7 @@ public class NullableSubServiceRuntimeTests
             root)!;
         var serializer = new TestJsonSerializer();
 
-        using var reply = await dispatcher.DispatchAsync(
+        using var reply = await dispatcher.DispatchToPayloadAsync(
             "OpenAsync",
             System.ReadOnlyMemory<byte>.Empty,
             serializer,
