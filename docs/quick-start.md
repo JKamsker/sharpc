@@ -125,6 +125,7 @@ The source generator creates:
 3. **Extensions** (`CreateMyServiceProxy()`, `AddMyService()`) - Convenience methods
 4. **Registry factory** (`ShaRpcGenerated`) - Typed proxy/dispatcher factory backed by generated delegates
 5. **Service catalog** (`ShaRpcGenerated.Services`) - Array-backed `ShaRpcGeneratedService` descriptors
+6. **Registration sink** (`ShaRpcGenerated.RegisterServices(...)`) - Direct generic calls for service/proxy registrations
 
 You can use the generated factory directly when building framework-style APIs:
 
@@ -138,6 +139,26 @@ foreach (var service in ShaRpcGenerated.Services)
 {
     Console.WriteLine($"{service.ServiceType.Name}: {service.ProxyType.Name}");
 }
+```
+
+For DI containers or host registries that need generic service/implementation pairs,
+implement `IShaRpcServiceRegistrationSink` and pass it to the generated callback:
+
+```csharp
+using ShaRPC.Core.Generated;
+using ShaRPC.Generated;
+
+public sealed class MySink : IShaRpcServiceRegistrationSink
+{
+    public void AddService<TService, TImplementation>()
+        where TService : class
+        where TImplementation : TService
+    {
+        // Register TService -> TImplementation in the host container.
+    }
+}
+
+ShaRpcGenerated.RegisterServices(new MySink());
 ```
 
 ## Next Steps

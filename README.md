@@ -45,6 +45,7 @@ dotnet add package ShaRPC.Transports.Tcp
 
 - **Source Generator Based**: Compile-time proxy and dispatcher generation — no runtime reflection.
 - **Generated service catalog**: `ShaRpcGenerated.Services` exposes service/proxy/dispatcher descriptors without scanning assemblies.
+- **Generic registration sink**: `ShaRpcGenerated.RegisterServices(...)` calls host-provided generic registration APIs per generated service.
 - **Truly incremental generator**: value-equatable models, `ForAttributeWithMetadataName`, tracked steps. The IDE never re-runs unnecessary work, even across large edits.
 - **Async sibling interfaces**: every `[ShaRpcService]` automatically gains an `I{Name}Async` view so callers can pick a blocking or non-blocking entry point.
 - **Nested services**: a method returning another `[ShaRpcService]` interface returns a fully-working sub-proxy bound to a server-side instance — no DTO marshalling for live objects.

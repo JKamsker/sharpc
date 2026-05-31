@@ -63,6 +63,13 @@ public class GeneratedFactoryRegistryTests
         Assert.Equal("GreeterProxy", services[0].ProxyType.Name);
         Assert.Equal("GreeterDispatcher", services[0].DispatcherType.Name);
 
+        var sink = new RegistrationSink();
+        generated.GetMethod("RegisterServices")!.Invoke(null, new object[] { sink });
+        var sinkService = Assert.Single(sink.Services);
+
+        Assert.Equal(interfaceType, sinkService.ServiceType);
+        Assert.Equal("GreeterProxy", sinkService.ImplementationType.Name);
+
         var assemblyServices = ShaRpcServiceRegistry.GetServices(assembly);
         Assert.Same(services, assemblyServices);
 
@@ -100,6 +107,18 @@ public class GeneratedFactoryRegistryTests
     private interface INotGeneratedService
     {
     }
+
+    private sealed class RegistrationSink : IShaRpcServiceRegistrationSink
+    {
+        public List<ServiceRegistration> Services { get; } = new();
+
+        public void AddService<TService, TImplementation>()
+            where TService : class
+            where TImplementation : TService =>
+            Services.Add(new ServiceRegistration(typeof(TService), typeof(TImplementation)));
+    }
+
+    private readonly record struct ServiceRegistration(Type ServiceType, Type ImplementationType);
 
     private static Assembly CompileAndLoad(string source)
     {

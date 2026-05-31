@@ -33,6 +33,19 @@ namespace ShaRPC.Generated
             => s_services;
 
         /// <summary>
+        /// Adds generated service proxy registrations to <paramref name="sink" /> without scanning generated types.
+        /// </summary>
+        public static void RegisterServices(global::ShaRPC.Core.Generated.IShaRpcServiceRegistrationSink sink)
+        {
+            if (sink is null)
+            {
+                throw new global::System.ArgumentNullException(nameof(sink));
+            }
+
+            sink.AddService<global::Snap.One.ICalculator, global::Snap.One.CalculatorProxy>();
+        }
+
+        /// <summary>
         /// Creates the generated client proxy for <typeparamref name="TService" />.
         /// </summary>
         public static TService CreateProxy<TService>(global::ShaRPC.Core.Client.IShaRpcClient client)

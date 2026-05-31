@@ -25,6 +25,7 @@ the generator emits:
 - extension methods such as `CreateChatServiceProxy()` and `AddChatService(...)`
 - `ShaRPC.Generated.ShaRpcGenerated`, a public factory and registration type
 - `ShaRpcGenerated.Services`, an array-backed catalog of generated service descriptors
+- `ShaRpcGenerated.RegisterServices(...)`, a generic registration callback for generated proxy implementations
 
 The generated `ShaRpcGenerated` type registers the service with
 `ShaRPC.Core.Generated.ShaRpcServiceRegistry` through generated delegates. No runtime
@@ -77,6 +78,47 @@ for (var i = 0; i < services.Count; i++)
 
 `Services` is backed by one generated static array per service assembly. Accessing it
 does not allocate another buffer and does not enumerate assembly types.
+
+## Registration Sink
+
+Use `IShaRpcServiceRegistrationSink` when a framework needs compile-time generic
+registrations instead of `Type` descriptors:
+
+```csharp
+using Microsoft.Extensions.DependencyInjection;
+using ShaRPC.Core.Generated;
+using ShaRPC.Generated;
+
+public sealed class MySink : IShaRpcServiceRegistrationSink
+{
+    private readonly IServiceCollection _services;
+
+    public MySink(IServiceCollection services)
+    {
+        _services = services;
+    }
+
+    public void AddService<TService, TImplementation>()
+        where TService : class
+        where TImplementation : TService
+    {
+        _services.AddTransient<TService, TImplementation>();
+    }
+}
+
+ShaRpcGenerated.RegisterServices(new MySink(services));
+```
+
+For each valid `[ShaRpcService]` interface generated into the assembly,
+`RegisterServices` calls:
+
+```csharp
+sink.AddService<IChatService, ChatServiceProxy>();
+```
+
+`TService` is the service interface. `TImplementation` is the generated proxy type
+that implements that interface. The method is generated as direct generic calls, so it
+does not scan assembly types or allocate a descriptor list for the sink path.
 
 ## Dynamic Factory Usage
 

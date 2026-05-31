@@ -66,6 +66,29 @@ internal static class GeneratedFactoryGenerator
         sb.AppendLine("            => s_services;");
         sb.AppendLine();
         sb.AppendLine("        /// <summary>");
+        sb.AppendLine("        /// Adds generated service proxy registrations to <paramref name=\"sink\" /> without scanning generated types.");
+        sb.AppendLine("        /// </summary>");
+        sb.AppendLine("        public static void RegisterServices(global::ShaRPC.Core.Generated.IShaRpcServiceRegistrationSink sink)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            if (sink is null)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                throw new global::System.ArgumentNullException(nameof(sink));");
+        sb.AppendLine("            }");
+        sb.AppendLine();
+
+        foreach (var service in services.Array)
+        {
+            ct.ThrowIfCancellationRequested();
+            var serviceName = NamingHelpers.StripInterfacePrefix(service.InterfaceName);
+            var fullInterfaceName = IdentifierHelpers.QualifyTypeName(service.Namespace, service.InterfaceName);
+            var fullProxyName = IdentifierHelpers.QualifyTypeName(service.Namespace, serviceName + "Proxy");
+
+            sb.AppendLine($"            sink.AddService<{fullInterfaceName}, {fullProxyName}>();");
+        }
+
+        sb.AppendLine("        }");
+        sb.AppendLine();
+        sb.AppendLine("        /// <summary>");
         sb.AppendLine("        /// Creates the generated client proxy for <typeparamref name=\"TService\" />.");
         sb.AppendLine("        /// </summary>");
         sb.AppendLine("        public static TService CreateProxy<TService>(global::ShaRPC.Core.Client.IShaRpcClient client)");
