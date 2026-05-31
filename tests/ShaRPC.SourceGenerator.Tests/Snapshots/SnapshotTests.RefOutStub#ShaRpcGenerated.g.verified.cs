@@ -49,6 +49,19 @@ namespace ShaRPC.Generated
         }
 
         /// <summary>
+        /// Adds generated service proxy and dispatcher registrations to <paramref name="sink" /> without scanning generated types.
+        /// </summary>
+        public static void RegisterGeneratedServices(global::ShaRPC.Core.Generated.IShaRpcGeneratedServiceRegistrationSink sink)
+        {
+            if (sink is null)
+            {
+                throw new global::System.ArgumentNullException(nameof(sink));
+            }
+
+            sink.AddService<global::Snap.RefOut.IRefOutSnap, global::Snap.RefOut.RefOutSnapProxy, global::Snap.RefOut.RefOutSnapDispatcher>();
+        }
+
+        /// <summary>
         /// Creates the generated client proxy for <typeparamref name="TService" />.
         /// </summary>
         public static TService CreateProxy<TService>(global::ShaRPC.Core.Client.IShaRpcClient client)

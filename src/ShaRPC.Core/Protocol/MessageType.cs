@@ -21,7 +21,7 @@ public enum MessageType : byte
     Error = 0x03,
 
     /// <summary>
-    /// A cancellation request (reserved for future use).
+    /// A cancellation request for an in-flight RPC request.
     /// </summary>
     Cancel = 0x04
 }

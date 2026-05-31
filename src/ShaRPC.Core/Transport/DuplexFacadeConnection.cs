@@ -46,26 +46,28 @@ internal sealed class DuplexFacadeConnection : IConnection
         return Payload.Empty;
     }
 
-    public async ValueTask<bool> EnqueueAsync(Payload frame, CancellationToken ct)
+    public async ValueTask<DuplexFrameEnqueueResult> EnqueueAsync(Payload frame, CancellationToken ct)
     {
         if (Volatile.Read(ref _closed) != 0)
         {
-            return false;
+            return DuplexFrameEnqueueResult.Closed;
         }
 
         if (_dropIncomingWhenFull)
         {
-            return _inbound.Writer.TryWrite(frame);
+            return _inbound.Writer.TryWrite(frame)
+                ? DuplexFrameEnqueueResult.Enqueued
+                : DuplexFrameEnqueueResult.QueueFull;
         }
 
         try
         {
             await _inbound.Writer.WriteAsync(frame, ct).ConfigureAwait(false);
-            return true;
+            return DuplexFrameEnqueueResult.Enqueued;
         }
         catch (ChannelClosedException)
         {
-            return false;
+            return DuplexFrameEnqueueResult.Closed;
         }
     }
 
@@ -105,4 +107,11 @@ internal sealed class DuplexFacadeConnection : IConnection
             SingleWriter = true,
         });
     }
+}
+
+internal enum DuplexFrameEnqueueResult
+{
+    Enqueued,
+    QueueFull,
+    Closed,
 }

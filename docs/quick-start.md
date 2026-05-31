@@ -116,6 +116,19 @@ Server and client projects reference:
 - `ShaRPC.Transports.Tcp`
 - `ShaRPC.Serializers.MessagePack`
 
+For process-local IPC, use the dedicated named-pipe package instead of TCP:
+
+```sh
+dotnet add package ShaRPC.Transports.NamedPipes
+```
+
+```csharp
+using ShaRPC.Transports.NamedPipes;
+
+var serverTransport = new NamedPipeServerTransport("my-app-rpc");
+var clientTransport = new NamedPipeClientTransport("my-app-rpc");
+```
+
 ## What Gets Generated?
 
 The source generator creates:
@@ -126,6 +139,7 @@ The source generator creates:
 4. **Registry factory** (`ShaRpcGenerated`) - Typed proxy/dispatcher factory backed by generated delegates
 5. **Service catalog** (`ShaRpcGenerated.Services`) - Array-backed `ShaRpcGeneratedService` descriptors
 6. **Registration sink** (`ShaRpcGenerated.RegisterServices(...)`) - Direct generic calls for service/proxy registrations
+7. **Generated implementation sink** (`ShaRpcGenerated.RegisterGeneratedServices(...)`) - Direct generic calls for service/proxy/dispatcher registrations
 
 You can use the generated factory directly when building framework-style APIs:
 
@@ -161,10 +175,33 @@ public sealed class MySink : IShaRpcServiceRegistrationSink
 ShaRpcGenerated.RegisterServices(new MySink());
 ```
 
+If the host needs both generated implementation types, use
+`IShaRpcGeneratedServiceRegistrationSink`:
+
+```csharp
+using ShaRPC.Core.Generated;
+using ShaRPC.Core.Server;
+using ShaRPC.Generated;
+
+public sealed class GeneratedSink : IShaRpcGeneratedServiceRegistrationSink
+{
+    public void AddService<TService, TProxy, TDispatcher>()
+        where TService : class
+        where TProxy : TService
+        where TDispatcher : IServiceDispatcher
+    {
+        // Register TService -> TProxy and TDispatcher without scanning assemblies.
+    }
+}
+
+ShaRpcGenerated.RegisterGeneratedServices(new GeneratedSink());
+```
+
 ## Next Steps
 
 - [Unity Integration Guide](./unity-integration.md) - Full Unity setup
 - [WebSocket Transport Guide](./websocket-setup.md) - WebSocket setup for browsers and WebGL
 - [Generated Service Registry](./generated-service-registry.md) - Factory and registry usage
+- [Named Pipe Transport](./named-pipe-transport.md) - Local IPC setup
 - [Samples](../samples/) - Working examples
 - [API Reference](./api-reference.md) - Detailed API docs

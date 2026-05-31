@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Reflection;
-using System.Runtime.CompilerServices;
 using ShaRPC.Core.Client;
 using ShaRPC.Core.Server;
 
@@ -11,11 +10,7 @@ namespace ShaRPC.Core.Generated;
 /// </summary>
 public static class ShaRpcServiceRegistry
 {
-    private const string GeneratedFactoryTypeName = "ShaRPC.Generated.ShaRpcGenerated";
-
     private static readonly ConcurrentDictionary<Type, RegisteredService> s_services = new();
-    private static readonly ConcurrentDictionary<Assembly, IReadOnlyList<ShaRpcGeneratedService>> s_serviceCatalogs = new();
-    private static readonly ConcurrentDictionary<Assembly, bool> s_registrationAttempts = new();
 
     /// <summary>
     /// Registers generated factories for a service interface.
@@ -83,7 +78,26 @@ public static class ShaRpcServiceRegistry
             throw new ArgumentNullException(nameof(assembly));
         }
 
-        return s_serviceCatalogs.GetOrAdd(assembly, static assembly => LoadGeneratedServices(assembly));
+        return ShaRpcGeneratedAssemblyCatalog.GetServices(assembly);
+    }
+
+    /// <summary>
+    /// Gets generated service metadata from multiple assemblies without scanning their types.
+    /// </summary>
+    public static IReadOnlyList<ShaRpcGeneratedService> GetServices(IEnumerable<Assembly> assemblies)
+    {
+        if (assemblies is null)
+        {
+            throw new ArgumentNullException(nameof(assemblies));
+        }
+
+        var services = new List<ShaRpcGeneratedService>();
+        foreach (var assembly in assemblies)
+        {
+            services.AddRange(GetServices(assembly));
+        }
+
+        return services;
     }
 
     /// <summary>
@@ -97,7 +111,53 @@ public static class ShaRpcServiceRegistry
         if (services is null)
             throw new ArgumentNullException(nameof(services));
 
-        s_serviceCatalogs[assembly] = services;
+        ShaRpcGeneratedAssemblyCatalog.PublishServices(assembly, services);
+    }
+
+    /// <summary>
+    /// Adds generated service proxy registrations from multiple assemblies to <paramref name="sink"/>.
+    /// </summary>
+    public static void RegisterServices(
+        IEnumerable<Assembly> assemblies,
+        IShaRpcServiceRegistrationSink sink)
+    {
+        if (assemblies is null)
+        {
+            throw new ArgumentNullException(nameof(assemblies));
+        }
+
+        if (sink is null)
+        {
+            throw new ArgumentNullException(nameof(sink));
+        }
+
+        foreach (var assembly in assemblies)
+        {
+            ShaRpcGeneratedAssemblyCatalog.RegisterServices(assembly, sink);
+        }
+    }
+
+    /// <summary>
+    /// Adds generated service, proxy, and dispatcher registrations from multiple assemblies to <paramref name="sink"/>.
+    /// </summary>
+    public static void RegisterGeneratedServices(
+        IEnumerable<Assembly> assemblies,
+        IShaRpcGeneratedServiceRegistrationSink sink)
+    {
+        if (assemblies is null)
+        {
+            throw new ArgumentNullException(nameof(assemblies));
+        }
+
+        if (sink is null)
+        {
+            throw new ArgumentNullException(nameof(sink));
+        }
+
+        foreach (var assembly in assemblies)
+        {
+            ShaRpcGeneratedAssemblyCatalog.RegisterGeneratedServices(assembly, sink);
+        }
     }
 
     /// <summary>
@@ -165,7 +225,7 @@ public static class ShaRpcServiceRegistry
             return registration;
         }
 
-        var generatedTypeFound = EnsureGeneratedRegistration(serviceInterface);
+        var generatedTypeFound = ShaRpcGeneratedAssemblyCatalog.EnsureRegistered(serviceInterface.Assembly);
         if (s_services.TryGetValue(serviceInterface, out registration))
         {
             return registration;
@@ -179,73 +239,6 @@ public static class ShaRpcServiceRegistry
             $"No ShaRPC generated factory is registered for {FormatType(serviceInterface)}: {reason}. " +
             "Mark the interface with [ShaRpcService] and ensure the assembly that declares it runs the ShaRPC source generator. " +
             $"Assembly: {assemblyName}.");
-    }
-
-    private static bool EnsureGeneratedRegistration(Type serviceInterface)
-    {
-        var assembly = serviceInterface.Assembly;
-        if (!s_registrationAttempts.TryAdd(assembly, true))
-        {
-            return assembly.GetType(GeneratedFactoryTypeName, throwOnError: false) is not null;
-        }
-
-        var generatedType = assembly.GetType(GeneratedFactoryTypeName, throwOnError: false);
-        if (generatedType is null)
-        {
-            return false;
-        }
-
-        try
-        {
-            RuntimeHelpers.RunClassConstructor(generatedType.TypeHandle);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            s_registrationAttempts.TryRemove(assembly, out _);
-            throw new InvalidOperationException(
-                $"ShaRPC generated factory registration failed for assembly '{assembly.FullName}'.",
-                ex);
-        }
-    }
-
-    private static IReadOnlyList<ShaRpcGeneratedService> LoadGeneratedServices(Assembly assembly)
-    {
-        var generatedType = assembly.GetType(GeneratedFactoryTypeName, throwOnError: false);
-        if (generatedType is null)
-        {
-            s_registrationAttempts.TryAdd(assembly, true);
-            return Array.Empty<ShaRpcGeneratedService>();
-        }
-
-        try
-        {
-            s_registrationAttempts.TryAdd(assembly, true);
-            RuntimeHelpers.RunClassConstructor(generatedType.TypeHandle);
-        }
-        catch (Exception ex)
-        {
-            s_registrationAttempts.TryRemove(assembly, out _);
-            throw new InvalidOperationException(
-                $"ShaRPC generated factory registration failed for assembly '{assembly.FullName}'.",
-                ex);
-        }
-
-        if (s_serviceCatalogs.TryGetValue(assembly, out var services))
-        {
-            return services;
-        }
-
-        var property = generatedType.GetProperty("Services", BindingFlags.Public | BindingFlags.Static);
-        if (property?.GetValue(null) is IReadOnlyList<ShaRpcGeneratedService> legacyServices)
-        {
-            s_serviceCatalogs[assembly] = legacyServices;
-            return legacyServices;
-        }
-
-        throw new InvalidOperationException(
-            $"ShaRPC generated factory type '{GeneratedFactoryTypeName}' in assembly '{assembly.FullName}' " +
-            "did not publish a compatible Services catalog.");
     }
 
     private static void ValidateService<TService>(ShaRpcGeneratedService service)

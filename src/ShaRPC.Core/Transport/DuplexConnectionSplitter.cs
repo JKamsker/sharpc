@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using ShaRPC.Core.Buffers;
 using ShaRPC.Core.Protocol;
 
@@ -52,6 +51,16 @@ public sealed class DuplexConnectionSplitter : IAsyncDisposable
     /// Raised when the remote side closes the shared connection.
     /// </summary>
     public event Action? Disconnected;
+
+    /// <summary>
+    /// Raised when the shared read loop ends, including the read error when one occurred.
+    /// </summary>
+    public event EventHandler<ShaRpcConnectionClosedEventArgs>? ConnectionClosed;
+
+    /// <summary>
+    /// Raised when a routed frame is dropped because the target facade cannot queue it.
+    /// </summary>
+    public event EventHandler<ShaRpcFrameDroppedEventArgs>? FrameDropped;
 
     /// <summary>
     /// Starts routing frames from the shared connection. Calling this more than once is a no-op.
@@ -115,8 +124,10 @@ public sealed class DuplexConnectionSplitter : IAsyncDisposable
 
                 try
                 {
-                    if (!await target.EnqueueAsync(frame, ct).ConfigureAwait(false))
+                    var enqueueResult = await target.EnqueueAsync(frame, ct).ConfigureAwait(false);
+                    if (enqueueResult != DuplexFrameEnqueueResult.Enqueued)
                     {
+                        RaiseFrameDropped(frame, enqueueResult);
                         frame.Dispose();
                     }
                 }
@@ -147,6 +158,9 @@ public sealed class DuplexConnectionSplitter : IAsyncDisposable
 
             if (!ct.IsCancellationRequested)
             {
+                ConnectionClosed?.Invoke(
+                    this,
+                    new ShaRpcConnectionClosedEventArgs(_connection.RemoteEndpoint, readError));
                 Disconnected?.Invoke();
             }
         }
@@ -192,21 +206,25 @@ public sealed class DuplexConnectionSplitter : IAsyncDisposable
 
     private static bool TryReadMessageType(Payload frame, out MessageType type)
     {
-        type = default;
-        if (frame.Length < MessageFramer.HeaderSize)
+        var result = MessageFramer.TryReadFrameHeader(frame.Memory, out _, out type);
+        return result;
+    }
+
+    private void RaiseFrameDropped(Payload frame, DuplexFrameEnqueueResult enqueueResult)
+    {
+        var handler = FrameDropped;
+        if (handler is null ||
+            !MessageFramer.TryReadFrameHeader(frame.Memory, out var messageId, out var messageType))
         {
-            return false;
+            return;
         }
 
-        var span = frame.Memory.Span;
-        var totalLength = BinaryPrimitives.ReadInt32LittleEndian(span.Slice(0, 4));
-        if (totalLength < MessageFramer.HeaderSize || totalLength > frame.Length)
-        {
-            return false;
-        }
-
-        type = (MessageType)span[8];
-        return true;
+        var reason = enqueueResult == DuplexFrameEnqueueResult.QueueFull
+            ? ShaRpcFrameDropReason.QueueFull
+            : ShaRpcFrameDropReason.TargetClosed;
+        handler(
+            this,
+            new ShaRpcFrameDroppedEventArgs(_connection.RemoteEndpoint, messageId, messageType, reason));
     }
 
     private static async ValueTask SafeDisposeAsync(IAsyncDisposable disposable)

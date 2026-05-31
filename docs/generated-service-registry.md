@@ -26,6 +26,7 @@ the generator emits:
 - `ShaRPC.Generated.ShaRpcGenerated`, a public factory and registration type
 - `ShaRpcGenerated.Services`, an array-backed catalog of generated service descriptors
 - `ShaRpcGenerated.RegisterServices(...)`, a generic registration callback for generated proxy implementations
+- `ShaRpcGenerated.RegisterGeneratedServices(...)`, a generic callback for service/proxy/dispatcher triples
 
 The generated `ShaRpcGenerated` type registers the service with
 `ShaRPC.Core.Generated.ShaRpcServiceRegistry` through generated delegates. No runtime
@@ -121,6 +122,38 @@ that implements that interface. The method is generated as direct generic calls,
 does not scan assembly types. The generated type initializer still publishes the shared
 descriptor catalog once per assembly.
 
+Use `IShaRpcGeneratedServiceRegistrationSink` when the host needs both generated
+implementation types:
+
+```csharp
+using ShaRPC.Core.Generated;
+using ShaRPC.Core.Server;
+using ShaRPC.Generated;
+
+public sealed class GeneratedSink : IShaRpcGeneratedServiceRegistrationSink
+{
+    public void AddService<TService, TProxy, TDispatcher>()
+        where TService : class
+        where TProxy : TService
+        where TDispatcher : IServiceDispatcher
+    {
+        // Register TService -> TProxy for clients and TDispatcher for server factories.
+    }
+}
+
+ShaRpcGenerated.RegisterGeneratedServices(new GeneratedSink());
+```
+
+For the same `IChatService`, the generated method emits a direct generic call:
+
+```csharp
+sink.AddService<IChatService, ChatServiceProxy, ChatServiceDispatcher>();
+```
+
+The all-caps compatibility aliases `IShaRPCServiceRegistrationSink` and
+`IShaRPCGeneratedServiceRegistrationSink` are also available for callers that prefer
+the project acronym casing.
+
 ## Dynamic Factory Usage
 
 When the service type is known only at runtime, use the non-generic overloads:
@@ -155,6 +188,22 @@ IReadOnlyList<ShaRpcGeneratedService> services =
 
 This is useful for plugin hosts that load contract assemblies dynamically and want
 the service/proxy/dispatcher map without scanning all types in the assembly.
+
+For hosts that load several contract assemblies, pass the assembly set once:
+
+```csharp
+Assembly[] contractAssemblies = pluginContracts.Select(p => p.Assembly).ToArray();
+
+IReadOnlyList<ShaRpcGeneratedService> allServices =
+    ShaRpcServiceRegistry.GetServices(contractAssemblies);
+
+ShaRpcServiceRegistry.RegisterServices(contractAssemblies, new MySink(services));
+ShaRpcServiceRegistry.RegisterGeneratedServices(contractAssemblies, new GeneratedSink());
+```
+
+The multi-assembly helpers perform a targeted lookup for
+`ShaRPC.Generated.ShaRpcGenerated` in each assembly. They do not enumerate assembly
+types or scan for attributes at runtime.
 
 ## Runtime Registry
 

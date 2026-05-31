@@ -41,6 +41,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Client", "Client", "{8011AB
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Inventory.Client", "samples\Inventory\Client\Inventory.Client.csproj", "{C841BD87-92CE-483B-A4E7-788AD2E7A82B}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ShaRPC.Transports.NamedPipes", "src\ShaRPC.Transports.NamedPipes\ShaRPC.Transports.NamedPipes.csproj", "{AAF28FB3-605E-4A83-8461-1E9F568FEC72}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -195,6 +197,18 @@ Global
 		{C841BD87-92CE-483B-A4E7-788AD2E7A82B}.Release|x64.Build.0 = Release|Any CPU
 		{C841BD87-92CE-483B-A4E7-788AD2E7A82B}.Release|x86.ActiveCfg = Release|Any CPU
 		{C841BD87-92CE-483B-A4E7-788AD2E7A82B}.Release|x86.Build.0 = Release|Any CPU
+		{AAF28FB3-605E-4A83-8461-1E9F568FEC72}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AAF28FB3-605E-4A83-8461-1E9F568FEC72}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AAF28FB3-605E-4A83-8461-1E9F568FEC72}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{AAF28FB3-605E-4A83-8461-1E9F568FEC72}.Debug|x64.Build.0 = Debug|Any CPU
+		{AAF28FB3-605E-4A83-8461-1E9F568FEC72}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{AAF28FB3-605E-4A83-8461-1E9F568FEC72}.Debug|x86.Build.0 = Debug|Any CPU
+		{AAF28FB3-605E-4A83-8461-1E9F568FEC72}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AAF28FB3-605E-4A83-8461-1E9F568FEC72}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AAF28FB3-605E-4A83-8461-1E9F568FEC72}.Release|x64.ActiveCfg = Release|Any CPU
+		{AAF28FB3-605E-4A83-8461-1E9F568FEC72}.Release|x64.Build.0 = Release|Any CPU
+		{AAF28FB3-605E-4A83-8461-1E9F568FEC72}.Release|x86.ActiveCfg = Release|Any CPU
+		{AAF28FB3-605E-4A83-8461-1E9F568FEC72}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -216,5 +230,6 @@ Global
 		{CDFAA543-87F4-435A-8A47-A20E5A2DD765} = {60BBD065-6F81-9931-5180-0B8E308BDBFE}
 		{8011AB8A-A99C-1319-3E4F-61F248808A00} = {689FEDE2-90BB-DC48-387A-B72E0D0FF900}
 		{C841BD87-92CE-483B-A4E7-788AD2E7A82B} = {8011AB8A-A99C-1319-3E4F-61F248808A00}
+		{AAF28FB3-605E-4A83-8461-1E9F568FEC72} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 EndGlobal

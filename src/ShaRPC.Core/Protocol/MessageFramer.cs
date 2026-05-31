@@ -203,6 +203,35 @@ public static class MessageFramer
     }
 
     /// <summary>
+    /// Parses just the ShaRPC frame header. This supports envelope-less control frames
+    /// such as request cancellation without requiring an RPC envelope prefix.
+    /// </summary>
+    public static bool TryReadFrameHeader(
+        ReadOnlyMemory<byte> source,
+        out int messageId,
+        out MessageType type)
+    {
+        messageId = 0;
+        type = default;
+
+        if (source.Length < HeaderSize)
+        {
+            return false;
+        }
+
+        var span = source.Span;
+        var totalLength = BinaryPrimitives.ReadInt32LittleEndian(span.Slice(0, 4));
+        if (totalLength < HeaderSize || totalLength > source.Length)
+        {
+            return false;
+        }
+
+        messageId = BinaryPrimitives.ReadInt32LittleEndian(span.Slice(4, 4));
+        type = (MessageType)span[8];
+        return true;
+    }
+
+    /// <summary>
     /// Reads a framed message from a stream. Returns <c>null</c> when the connection is closed.
     /// The caller owns the returned <see cref="FramedMessage.Payload"/> and must dispose it.
     /// </summary>

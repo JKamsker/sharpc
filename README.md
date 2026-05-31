@@ -30,6 +30,9 @@ Add a transport:
 ```sh
 # TCP server/client transport
 dotnet add package ShaRPC.Transports.Tcp
+
+# Named-pipe server/client transport for process-boundary IPC
+dotnet add package ShaRPC.Transports.NamedPipes
 ```
 
 A typical TCP + MessagePack setup uses all three:
@@ -46,12 +49,13 @@ dotnet add package ShaRPC.Transports.Tcp
 - **Source Generator Based**: Compile-time proxy and dispatcher generation — no runtime reflection.
 - **Generated service catalog**: `ShaRpcGenerated.Services` exposes service/proxy/dispatcher descriptors without scanning assemblies.
 - **Generic registration sink**: `ShaRpcGenerated.RegisterServices(...)` calls host-provided generic registration APIs per generated service.
+- **Generated implementation sink**: `ShaRpcGenerated.RegisterGeneratedServices(...)` emits direct service/proxy/dispatcher generic registrations.
 - **Truly incremental generator**: value-equatable models, `ForAttributeWithMetadataName`, tracked steps. The IDE never re-runs unnecessary work, even across large edits.
 - **Async sibling interfaces**: every `[ShaRpcService]` automatically gains an `I{Name}Async` view so callers can pick a blocking or non-blocking entry point.
 - **Nested services**: a method returning another `[ShaRpcService]` interface returns a fully-working sub-proxy bound to a server-side instance — no DTO marshalling for live objects.
 - **Unity Compatible**: Works with IL2CPP and AOT compilation.
 - **Bidirectional peers**: one duplex connection can serve local services and call remote services at the same time.
-- **Transport Agnostic**: TCP, stream/named-pipe connections, and single-connection adapters included; easily extensible to WebSocket, Steam, etc.
+- **Transport Agnostic**: TCP, dedicated named-pipe transports, stream connections, and single-connection adapters included; easily extensible to WebSocket, Steam, etc.
 - **Shared Contracts**: Same C# interfaces on client and server.
 - **Fast Serialization**: MessagePack for efficient binary encoding, custom resolver options, and `ReadOnlyMemory<byte>` DTO fields.
 - **Async/Await**: Full async support with cancellation tokens.
@@ -106,6 +110,15 @@ var peer = await ShaRpcPeer.StartAsync(
     builder => builder.AddDispatcher(ShaRpcGenerated.CreateDispatcher<IGameService>(gameService)));
 
 var remote = peer.CreateProxy<IRemoteGameService>();
+```
+
+Named-pipe IPC uses a dedicated transport package:
+
+```csharp
+using ShaRPC.Transports.NamedPipes;
+
+var serverTransport = new NamedPipeServerTransport("my-plugin-pipe");
+var clientTransport = new NamedPipeClientTransport("my-plugin-pipe");
 ```
 
 ## Generator features at a glance
@@ -169,6 +182,7 @@ sharpc/
 │   ├── ShaRPC.Core/                    # Core abstractions and infrastructure
 │   ├── ShaRPC.SourceGenerator/         # Compile-time code generation
 │   ├── ShaRPC.Transports.Tcp/          # TCP transport implementation
+│   ├── ShaRPC.Transports.NamedPipes/   # Named-pipe transport implementation
 │   └── ShaRPC.Serializers.MessagePack/ # MessagePack serialization
 ├── samples/
 │   ├── GameService/{Shared,Server,Client}/    # Original sample (TCP + MessagePack)
@@ -179,6 +193,7 @@ sharpc/
 └── docs/
     ├── quick-start.md                  # Getting started guide
     ├── unity-integration.md            # Unity integration guide
+    ├── named-pipe-transport.md         # Named-pipe IPC setup
     ├── api-reference.md                # API documentation
     └── design/nested-services.md       # Nested-services design
 ```
@@ -210,6 +225,7 @@ preserves server-side state across calls within a connection. See
 - [Quick Start Guide](docs/quick-start.md)
 - [Unity Integration Guide](docs/unity-integration.md)
 - [Generated Service Registry](docs/generated-service-registry.md)
+- [Named Pipe Transport](docs/named-pipe-transport.md)
 - [API Reference](docs/api-reference.md)
 - [Nested Services Design](docs/design/nested-services.md)
 
@@ -242,10 +258,11 @@ under the tag's exact version.
 |---------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------|
 | [`ShaRPC`](https://www.nuget.org/packages/ShaRPC)                                                 | Runtime core + bundled source generator (auto-loaded analyzer, no runtime dependency) |
 | [`ShaRPC.Transports.Tcp`](https://www.nuget.org/packages/ShaRPC.Transports.Tcp)                   | TCP server/client transport                                               |
+| [`ShaRPC.Transports.NamedPipes`](https://www.nuget.org/packages/ShaRPC.Transports.NamedPipes)     | Named-pipe server/client transport for local IPC                          |
 | [`ShaRPC.Serializers.MessagePack`](https://www.nuget.org/packages/ShaRPC.Serializers.MessagePack) | MessagePack `ISerializer`                                                 |
 
 The core library and the source generator ship together in the single `ShaRPC`
-package. `ShaRPC.Transports.Tcp` and `ShaRPC.Serializers.MessagePack` both depend
+package. Transport and serializer packages depend
 on `ShaRPC`. See [Installation](#installation) for the install commands.
 
 ## Requirements

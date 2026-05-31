@@ -70,8 +70,27 @@ public class GeneratedFactoryRegistryTests
         Assert.Equal(interfaceType, sinkService.ServiceType);
         Assert.Equal("GreeterProxy", sinkService.ImplementationType.Name);
 
+        var generatedSink = new GeneratedRegistrationSink();
+        generated.GetMethod("RegisterGeneratedServices")!.Invoke(null, new object[] { generatedSink });
+        var generatedSinkService = Assert.Single(generatedSink.Services);
+
+        Assert.Equal(interfaceType, generatedSinkService.ServiceType);
+        Assert.Equal("GreeterProxy", generatedSinkService.ProxyType.Name);
+        Assert.Equal("GreeterDispatcher", generatedSinkService.DispatcherType.Name);
+
         var assemblyServices = ShaRpcServiceRegistry.GetServices(assembly);
         Assert.Same(services, assemblyServices);
+
+        var combinedServices = ShaRpcServiceRegistry.GetServices(new[] { assembly, typeof(NullClient).Assembly });
+        Assert.Contains(combinedServices, service => service.ServiceType == interfaceType);
+
+        var multiSink = new RegistrationSink();
+        ShaRpcServiceRegistry.RegisterServices(new[] { assembly }, multiSink);
+        Assert.Equal(interfaceType, Assert.Single(multiSink.Services).ServiceType);
+
+        var multiGeneratedSink = new GeneratedRegistrationSink();
+        ShaRpcServiceRegistry.RegisterGeneratedServices(new[] { assembly }, multiGeneratedSink);
+        Assert.Equal(interfaceType, Assert.Single(multiGeneratedSink.Services).ServiceType);
 
         var registryProxy = ShaRpcServiceRegistry.CreateProxy(interfaceType, client);
         var registryDispatcher = ShaRpcServiceRegistry.CreateDispatcher(interfaceType, implementation);
@@ -169,6 +188,25 @@ public class GeneratedFactoryRegistryTests
     }
 
     private readonly record struct ServiceRegistration(Type ServiceType, Type ImplementationType);
+
+    private sealed class GeneratedRegistrationSink : IShaRpcGeneratedServiceRegistrationSink
+    {
+        public List<GeneratedServiceRegistration> Services { get; } = new();
+
+        public void AddService<TService, TProxy, TDispatcher>()
+            where TService : class
+            where TProxy : TService
+            where TDispatcher : IServiceDispatcher =>
+            Services.Add(new GeneratedServiceRegistration(
+                typeof(TService),
+                typeof(TProxy),
+                typeof(TDispatcher)));
+    }
+
+    private readonly record struct GeneratedServiceRegistration(
+        Type ServiceType,
+        Type ProxyType,
+        Type DispatcherType);
 
     private static Assembly CompileAndLoad(string source)
     {

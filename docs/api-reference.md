@@ -168,9 +168,14 @@ var remote = peer.CreateProxy<IRemoteService>();
 | `RegisterDispatcher(IServiceDispatcher)` | Registers an inbound dispatcher |
 | `ReadError` | Raised when the shared read loop faults |
 | `Disconnected` | Raised when the remote connection closes |
+| `ConnectionClosed` | Raised when the shared read loop ends, with endpoint and exception details |
+| `FrameDropped` | Raised when a bounded duplex queue drops or rejects a routed frame |
 | `CloseAsync()` / `DisposeAsync()` | Idempotently closes the peer and underlying connection |
 
 `ShaRpcPeerOptions.InboundQueueCapacity` and `QueueFullMode` can bound the internal request/response queues used by the duplex splitter.
+Client-side cancellation sends a ShaRPC cancel frame for the in-flight request. The server
+continues reading the connection while dispatch runs and cancels the matching dispatcher token
+when that frame arrives.
 
 ---
 
@@ -221,6 +226,45 @@ public interface IConnection : IAsyncDisposable
 | `SingleConnectionTransport` | Client `ITransport` adapter for an already-established `IConnection` |
 | `SingleConnectionServerTransport` | Server `IServerTransport` adapter that accepts one already-established `IConnection` |
 | `DuplexConnectionSplitter` | Routes request/cancel frames to a server-facing connection and response/error frames to a client-facing connection |
+
+---
+
+## Named Pipe Transport: `ShaRPC.Transports.NamedPipes`
+
+#### `NamedPipeClientTransport`
+Named-pipe client transport for process-boundary IPC.
+
+```csharp
+public NamedPipeClientTransport(string pipeName, int maxMessageSize = MessageFramer.MaxMessageSize)
+public NamedPipeClientTransport(string serverName, string pipeName, int maxMessageSize = MessageFramer.MaxMessageSize)
+```
+
+#### `NamedPipeServerTransport`
+Named-pipe server transport.
+
+```csharp
+public NamedPipeServerTransport(
+    string pipeName,
+    int maxAllowedServerInstances = NamedPipeServerStream.MaxAllowedServerInstances,
+    int maxMessageSize = MessageFramer.MaxMessageSize)
+```
+
+Both transports wrap `NamedPipeClientStream`/`NamedPipeServerStream` in the core
+`StreamConnection`, so they use the same ShaRPC frame validation, send serialization,
+and clean EOF behavior as any other stream-backed connection.
+
+```csharp
+var server = new ShaRpcServerBuilder()
+    .UseTransport(new NamedPipeServerTransport("my-plugin-pipe"))
+    .UseSerializer(new MessagePackRpcSerializer())
+    .AddMyService(new MyService())
+    .Build();
+
+var client = new ShaRpcClientBuilder()
+    .UseTransport(new NamedPipeClientTransport("my-plugin-pipe"))
+    .UseSerializer(new MessagePackRpcSerializer())
+    .Build();
+```
 
 ---
 
@@ -337,6 +381,7 @@ public static class ShaRpcGenerated
 {
     public static IReadOnlyList<ShaRpcGeneratedService> Services { get; }
     public static void RegisterServices(IShaRpcServiceRegistrationSink sink);
+    public static void RegisterGeneratedServices(IShaRpcGeneratedServiceRegistrationSink sink);
     public static TService CreateProxy<TService>(IShaRpcClient client) where TService : class;
     public static object CreateProxy(Type serviceInterface, IShaRpcClient client);
     public static IServiceDispatcher CreateDispatcher<TService>(TService implementation) where TService : class;
@@ -360,8 +405,22 @@ public interface IShaRpcServiceRegistrationSink
 }
 ```
 
+`RegisterGeneratedServices(IShaRpcGeneratedServiceRegistrationSink)` emits one direct
+generic call per service with service, proxy, and dispatcher types:
+
+```csharp
+public interface IShaRpcGeneratedServiceRegistrationSink
+{
+    void AddService<TService, TProxy, TDispatcher>()
+        where TService : class
+        where TProxy : TService
+        where TDispatcher : IServiceDispatcher;
+}
+```
+
 The runtime registry is available as `ShaRPC.Core.Generated.ShaRpcServiceRegistry` and throws a clear diagnostic when no generated factory is registered for a service interface.
-It also exposes `GetService(Type)` and `GetServices(Assembly)` for dynamic hosts that need generated metadata.
+It also exposes `GetService(Type)`, `GetServices(Assembly)`, `GetServices(IEnumerable<Assembly>)`,
+and multi-assembly sink registration helpers for dynamic hosts that need generated metadata.
 See [Generated Service Registry](./generated-service-registry.md) for examples and assembly-scope details.
 
 ---
@@ -378,7 +437,7 @@ See [Generated Service Registry](./generated-service-registry.md) for examples a
 |-------|------|-------------|
 | Total Length | 4 bytes (int32 LE) | Full message size including header |
 | Message ID | 4 bytes (int32 LE) | Request/response correlation ID |
-| Message Type | 1 byte | 0x01=Request, 0x02=Response, 0x03=Error |
+| Message Type | 1 byte | 0x01=Request, 0x02=Response, 0x03=Error, 0x04=Cancel |
 | Envelope Length | 4 bytes (int32 LE) | Size of the serialized envelope |
 | Envelope | Variable | Serialized `RpcRequest`/`RpcResponse` metadata |
 | Payload | Variable | Raw serialized arguments/return value |
@@ -391,6 +450,9 @@ receiver can hand it to the dispatcher (or deserialize the return value) as a ze
 frame buffer, avoiding a per-message heap allocation. The envelope-length prefix lets the receiver
 locate the payload without the serializer reporting how many bytes it consumed.
 
+Cancel frames use only the 9-byte frame header and the message id of the request being
+cancelled; they do not include an RPC envelope.
+
 ### Message Types
 
 | Value | Type | Description |
@@ -398,7 +460,7 @@ locate the payload without the serializer reporting how many bytes it consumed.
 | `0x01` | Request | RPC request from client |
 | `0x02` | Response | Successful response from server |
 | `0x03` | Error | Error response from server |
-| `0x04` | Cancel | Cancellation (reserved for future) |
+| `0x04` | Cancel | Envelope-less cancellation frame for an in-flight request id |
 
 ### Request Envelope
 

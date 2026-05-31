@@ -44,6 +44,16 @@ public sealed class ShaRpcPeer : IAsyncDisposable
     public event Action? Disconnected;
 
     /// <summary>
+    /// Raised when the shared read loop ends, including the read error when one occurred.
+    /// </summary>
+    public event EventHandler<ShaRpcConnectionClosedEventArgs>? ConnectionClosed;
+
+    /// <summary>
+    /// Raised when a routed frame is dropped because the target facade cannot queue it.
+    /// </summary>
+    public event EventHandler<ShaRpcFrameDroppedEventArgs>? FrameDropped;
+
+    /// <summary>
     /// Creates a generated proxy for a service exposed by the remote peer.
     /// </summary>
     public TService CreateProxy<TService>()
@@ -114,6 +124,8 @@ public sealed class ShaRpcPeer : IAsyncDisposable
         var peer = new ShaRpcPeer(splitter, server, client);
         splitter.ReadError += peer.HandleReadError;
         splitter.Disconnected += peer.HandleDisconnected;
+        splitter.ConnectionClosed += peer.HandleConnectionClosed;
+        splitter.FrameDropped += peer.HandleFrameDropped;
 
         try
         {
@@ -153,6 +165,12 @@ public sealed class ShaRpcPeer : IAsyncDisposable
     private void HandleReadError(Exception exception) => ReadError?.Invoke(exception);
 
     private void HandleDisconnected() => Disconnected?.Invoke();
+
+    private void HandleConnectionClosed(object? sender, ShaRpcConnectionClosedEventArgs args) =>
+        ConnectionClosed?.Invoke(this, args);
+
+    private void HandleFrameDropped(object? sender, ShaRpcFrameDroppedEventArgs args) =>
+        FrameDropped?.Invoke(this, args);
 
     private static async ValueTask SafeDisposeAsync(ValueTask operation)
     {

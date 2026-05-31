@@ -64,13 +64,9 @@ public sealed class ShaRpcServer : IShaRpcServer
             {
                 await _acceptTask;
             }
-            catch (OperationCanceledException)
-            {
-                // Expected
-            }
+            catch (OperationCanceledException) { }
         }
 
-        // Wait for all connections to close
         var connectionTasks = _connections.Values.ToArray();
         if (connectionTasks.Length > 0)
         {
@@ -89,44 +85,154 @@ public sealed class ShaRpcServer : IShaRpcServer
             try
             {
                 var connection = await _transport.AcceptAsync(ct);
-                // Each connection gets its own instance registry — sub-service identifiers
-                // are scoped to the connection that created them.
                 var registry = new InstanceRegistry();
                 var connectionTask = HandleConnectionAsync(connection, registry, ct);
                 _connections.TryAdd(connection, connectionTask);
 
-                // Clean up completed connections
                 _ = connectionTask.ContinueWith(_ => _connections.TryRemove(connection, out _), TaskContinuationOptions.ExecuteSynchronously);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
                 break;
             }
-            catch (Exception)
-            {
-                // Log and continue accepting
-            }
+            catch (Exception) { }
         }
     }
 
     private async Task HandleConnectionAsync(IConnection connection, IInstanceRegistry registry, CancellationToken ct)
     {
+        var activeRequests = new ConcurrentDictionary<int, CancellationTokenSource>();
+        var activeTasks = new ConcurrentDictionary<int, Task>();
+
         try
         {
             while (connection.IsConnected && !ct.IsCancellationRequested)
             {
-                using var data = await connection.ReceiveAsync(ct);
+                var data = await connection.ReceiveAsync(ct);
                 if (data.Length == 0)
                 {
-                    break; // Connection closed
+                    data.Dispose();
+                    break;
                 }
 
-                await ProcessMessageAsync(connection, registry, data, ct);
+                ProcessMessage(connection, registry, data, activeRequests, activeTasks, ct);
             }
         }
         catch (OperationCanceledException)
         {
-            // Expected on shutdown
+        }
+        catch (Exception)
+        {
+        }
+        finally
+        {
+            foreach (var request in activeRequests.Values)
+            {
+                SafeCancel(request);
+            }
+
+            await WaitForActiveRequestsAsync(activeTasks.Values);
+
+            registry.ReleaseAll();
+            await connection.DisposeAsync();
+        }
+    }
+
+    private void ProcessMessage(
+        IConnection connection,
+        IInstanceRegistry registry,
+        Payload data,
+        ConcurrentDictionary<int, CancellationTokenSource> activeRequests,
+        ConcurrentDictionary<int, Task> activeTasks,
+        CancellationToken ct)
+    {
+        if (!MessageFramer.TryReadFrameHeader(data.Memory, out var messageId, out var messageType))
+        {
+            data.Dispose();
+            return;
+        }
+
+        if (messageType == MessageType.Cancel)
+        {
+            if (activeRequests.TryGetValue(messageId, out var requestCts))
+            {
+                SafeCancel(requestCts);
+            }
+
+            data.Dispose();
+            return;
+        }
+
+        if (messageType != MessageType.Request ||
+            !MessageFramer.TryReadFrame(data.Memory, out _, out _, out var envelope, out var payload))
+        {
+            data.Dispose();
+            return;
+        }
+
+        RpcRequest request;
+        try
+        {
+            request = _serializer.Deserialize<RpcRequest>(envelope);
+        }
+        catch
+        {
+            data.Dispose();
+            throw;
+        }
+
+        var dispatchCts = new CancellationTokenSource();
+        if (!activeRequests.TryAdd(messageId, dispatchCts))
+        {
+            dispatchCts.Dispose();
+            data.Dispose();
+            return;
+        }
+
+        var task = ProcessRequestAsync(
+            connection,
+            registry,
+            data,
+            request,
+            messageId,
+            payload,
+            activeRequests,
+            activeTasks,
+            dispatchCts);
+        activeTasks[messageId] = task;
+        if (task.IsCompleted)
+        {
+            activeTasks.TryRemove(messageId, out _);
+        }
+    }
+
+    private async Task ProcessRequestAsync(
+        IConnection connection,
+        IInstanceRegistry registry,
+        Payload data,
+        RpcRequest request,
+        int messageId,
+        ReadOnlyMemory<byte> payload,
+        ConcurrentDictionary<int, CancellationTokenSource> activeRequests,
+        ConcurrentDictionary<int, Task> activeTasks,
+        CancellationTokenSource requestCts)
+    {
+        try
+        {
+            using (data)
+            {
+                using var responseFrame = await BuildResponseFrameAsync(
+                    request,
+                    messageId,
+                    payload,
+                    registry,
+                    requestCts.Token);
+                await connection.SendAsync(responseFrame.Memory, requestCts.Token);
+            }
+        }
+        catch (OperationCanceledException) when (requestCts.IsCancellationRequested)
+        {
+            // Remote cancellation or server shutdown; no response frame is sent for cancelled work.
         }
         catch (Exception)
         {
@@ -134,42 +240,12 @@ public sealed class ShaRpcServer : IShaRpcServer
         }
         finally
         {
-            // Drop every sub-service instance tied to this connection so user code's
-            // server-side state cannot outlive the connection that produced it.
-            registry.ReleaseAll();
-            await connection.DisposeAsync();
+            activeRequests.TryRemove(messageId, out _);
+            activeTasks.TryRemove(messageId, out _);
+            requestCts.Dispose();
         }
     }
 
-    private async Task ProcessMessageAsync(IConnection connection, IInstanceRegistry registry, Payload data, CancellationToken ct)
-    {
-        if (!MessageFramer.TryReadFrame(data.Memory, out var messageId, out var messageType, out var envelope, out var payload))
-        {
-            return;
-        }
-
-        if (messageType != MessageType.Request)
-        {
-            return; // Server only handles requests
-        }
-
-        // Safety invariant: `payload` is a zero-copy slice of the frame buffer (`data`), which the
-        // caller keeps alive for the duration of this method. Dispatchers deserialize their
-        // arguments synchronously from `payload` up front and never retain the memory, so the slice
-        // never outlives `data`. The result is serialized into a separate frame buffer, not `data`.
-        var request = _serializer.Deserialize<RpcRequest>(envelope);
-
-        using var responseFrame = await BuildResponseFrameAsync(request, messageId, payload, registry, ct);
-        await connection.SendAsync(responseFrame.Memory, ct);
-    }
-
-    /// <summary>
-    /// Builds the response frame for a request. On the success path the response envelope is written
-    /// first and the dispatcher serializes the method result straight into the trailing payload, so
-    /// there is no separate result buffer to allocate and copy. If the dispatcher throws (unknown
-    /// method, instance not found, or a user exception) the half-built frame is discarded and a fresh
-    /// error frame is returned instead. The caller owns the returned <see cref="Payload"/>.
-    /// </summary>
     private async ValueTask<Payload> BuildResponseFrameAsync(
         RpcRequest request,
         int messageId,
@@ -190,15 +266,16 @@ public sealed class ShaRpcServer : IShaRpcServer
 
         try
         {
-            // Route by instance: a non-null InstanceId means the call targets a server-side
-            // sub-service that the client got a handle to earlier.
             await (request.InstanceId is null
                 ? dispatcher.DispatchAsync(request.MethodName, payload, _serializer, registry, writer, ct)
                 : dispatcher.DispatchOnInstanceAsync(request.InstanceId, request.MethodName, payload, _serializer, registry, writer, ct));
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
-            // The success envelope already written to `writer` is abandoned; the using disposes it.
             return BuildErrorFrame(messageId, ex.Message, ex.GetType().Name);
         }
 
@@ -210,14 +287,32 @@ public sealed class ShaRpcServer : IShaRpcServer
             _serializer,
             messageId,
             MessageType.Error,
-            new RpcResponse
-            {
-                MessageId = messageId,
-                IsSuccess = false,
-                ErrorMessage = errorMessage,
-                ErrorType = errorType,
-            },
+            new RpcResponse { MessageId = messageId, IsSuccess = false, ErrorMessage = errorMessage, ErrorType = errorType },
             ReadOnlySpan<byte>.Empty);
+
+    private static async Task WaitForActiveRequestsAsync(IEnumerable<Task> activeRequests)
+    {
+        try
+        {
+            await Task.WhenAll(activeRequests).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Individual request tasks observe and swallow dispatch/send failures.
+        }
+    }
+
+    private static void SafeCancel(CancellationTokenSource cts)
+    {
+        try
+        {
+            cts.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The request completed while the connection was closing.
+        }
+    }
 
     public async ValueTask DisposeAsync()
     {

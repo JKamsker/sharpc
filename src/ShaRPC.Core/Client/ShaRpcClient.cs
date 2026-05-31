@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using ShaRPC.Core.Buffers;
 using ShaRPC.Core.Exceptions;
 using ShaRPC.Core.Protocol;
@@ -14,7 +13,7 @@ public sealed class ShaRpcClient : IShaRpcClient
 {
     private readonly ITransport _transport;
     private readonly ISerializer _serializer;
-    private readonly ConcurrentDictionary<int, TaskCompletionSource<ReceivedResponse>> _pendingRequests = new();
+    private readonly ShaRpcPendingRequests _pendingRequests = new();
     private readonly TimeSpan _timeout;
     private int _messageIdCounter;
     private Task? _receiveTask;
@@ -124,12 +123,7 @@ public sealed class ShaRpcClient : IShaRpcClient
         var messageId = Interlocked.Increment(ref _messageIdCounter);
         var envelope = CreateEnvelope(messageId, service, method, instanceId);
 
-        // Serialize the argument straight into the frame buffer instead of into a separate pooled
-        // payload that then has to be copied in behind the envelope.
         var frame = MessageFramer.FrameRequest(_serializer, messageId, MessageType.Request, envelope, request);
-
-        // Hand the awaiter's task straight back rather than awaiting it: this prologue is synchronous,
-        // so dropping the async state machine saves a Task plus its state-machine box on every call.
         return SendFrameAndAwaitAsync(messageId, frame, connection, service, method, ct);
     }
 
@@ -182,27 +176,23 @@ public sealed class ShaRpcClient : IShaRpcClient
         string method,
         CancellationToken ct)
     {
-        var tcs = new TaskCompletionSource<ReceivedResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _pendingRequests.TryAdd(messageId, tcs);
-
+        TaskCompletionSource<ReceivedResponse>? tcs = null;
         var consumed = false;
+        var requestSent = false;
         try
         {
+            tcs = _pendingRequests.Add(messageId);
             using (frame)
             {
                 await connection.SendAsync(frame.Memory, ct);
+                requestSent = true;
             }
 
-            // A linked source is only needed when the caller's token can actually fire; otherwise a
-            // plain source carrying just the timeout avoids the linking overhead.
             using var timeoutCts = ct.CanBeCanceled
                 ? CancellationTokenSource.CreateLinkedTokenSource(ct)
                 : new CancellationTokenSource();
             timeoutCts.CancelAfter(_timeout);
 
-            // Completing the pending TCS from the token registration—rather than racing tcs.Task against
-            // Task.Delay through Task.WhenAny—avoids allocating the delay task, its timer, and the WhenAny
-            // array on every call. The static callback plus state argument keeps the registration closure-free.
             ReceivedResponse received;
             using (timeoutCts.Token.Register(
                 static state => ((TaskCompletionSource<ReceivedResponse>)state!).TrySetCanceled(),
@@ -212,8 +202,13 @@ public sealed class ShaRpcClient : IShaRpcClient
                 {
                     received = await tcs.Task;
                 }
-                catch (OperationCanceledException)
+                catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
                 {
+                    if (requestSent)
+                    {
+                        _ = SendCancelFrameAsync(connection, messageId);
+                    }
+
                     // The linked token fires for both the caller's cancellation and the timeout;
                     // re-throw the former as-is and map the latter to a timeout.
                     ct.ThrowIfCancellationRequested();
@@ -233,42 +228,28 @@ public sealed class ShaRpcClient : IShaRpcClient
         }
         finally
         {
-            _pendingRequests.TryRemove(messageId, out _);
-            if (!consumed)
+            if (tcs is null)
             {
-                DisposeResultWhenAvailable(tcs.Task);
+                frame.Dispose();
+            }
+            else
+            {
+                _pendingRequests.Remove(messageId, tcs.Task, consumed);
             }
         }
     }
 
-    /// <summary>
-    /// Disposes the frame carried by a response the caller has abandoned (timeout, cancellation, or
-    /// a remote error). Handles the case where the response has not arrived yet by disposing it on
-    /// completion. A faulted or cancelled task carries no frame, so nothing is disposed.
-    /// </summary>
-    private static void DisposeResultWhenAvailable(Task<ReceivedResponse> task)
+    private static async Task SendCancelFrameAsync(IConnection connection, int messageId)
     {
-        if (task.IsCompleted)
+        try
         {
-            if (task.Status == TaskStatus.RanToCompletion)
-            {
-                task.Result.Dispose();
-            }
-
-            return;
+            using var frame = MessageFramer.FrameToPayload(messageId, MessageType.Cancel, ReadOnlySpan<byte>.Empty);
+            await connection.SendAsync(frame.Memory, CancellationToken.None).ConfigureAwait(false);
         }
-
-        _ = task.ContinueWith(
-            static t =>
-            {
-                if (t.Status == TaskStatus.RanToCompletion)
-                {
-                    t.Result.Dispose();
-                }
-            },
-            CancellationToken.None,
-            TaskContinuationOptions.ExecuteSynchronously,
-            TaskScheduler.Default);
+        catch
+        {
+            // Cancellation is best-effort; the request may already have completed or the connection closed.
+        }
     }
 
     private async Task ReceiveLoopAsync(CancellationToken ct)
@@ -290,11 +271,6 @@ public sealed class ShaRpcClient : IShaRpcClient
                     break;
                 }
 
-                // Safety invariant: `payload` is a zero-copy slice of `frame`. Ownership of `frame`
-                // is transferred to the ReceivedResponse carrier and ultimately to the awaiting
-                // caller, which disposes it after deserializing the payload. If the frame is not
-                // handed off (unparseable, wrong type, or no matching/abandoned request) we dispose
-                // it here so the rented buffer is always returned exactly once.
                 var handedOff = false;
                 try
                 {
@@ -309,17 +285,7 @@ public sealed class ShaRpcClient : IShaRpcClient
                     }
 
                     var response = _serializer.Deserialize<RpcResponse>(envelope);
-                    if (_pendingRequests.TryGetValue(messageId, out var tcs))
-                    {
-                        var received = new ReceivedResponse(response, payload, frame);
-                        if (!tcs.TrySetResult(received))
-                        {
-                            // The caller already gave up; release the frame we just took ownership of.
-                            received.Dispose();
-                        }
-
-                        handedOff = true;
-                    }
+                    handedOff = _pendingRequests.TryComplete(messageId, response, payload, frame);
                 }
                 finally
                 {
@@ -336,11 +302,7 @@ public sealed class ShaRpcClient : IShaRpcClient
         }
         catch (Exception ex)
         {
-            // complete all pending requests with error
-            foreach (var kvp in _pendingRequests)
-            {
-                kvp.Value.TrySetException(new ShaRpcConnectionException("Connection lost.", ex));
-            }
+            _pendingRequests.FailAll(new ShaRpcConnectionException("Connection lost.", ex));
         }
     }
 
@@ -367,35 +329,9 @@ public sealed class ShaRpcClient : IShaRpcClient
             }
         }
 
-        // Complete all pending requests
-        foreach (var kvp in _pendingRequests)
-        {
-            kvp.Value.TrySetCanceled();
-        }
+        _pendingRequests.CancelAll();
 
         _cts?.Dispose();
         await _transport.DisposeAsync();
-    }
-
-    /// <summary>
-    /// Carries a deserialized <see cref="RpcResponse"/> together with the zero-copy payload slice and
-    /// the frame buffer that backs it. Disposing returns the rented frame to the pool exactly once.
-    /// </summary>
-    private sealed class ReceivedResponse : IDisposable
-    {
-        private Payload? _frame;
-
-        public ReceivedResponse(RpcResponse response, ReadOnlyMemory<byte> payload, Payload frame)
-        {
-            Response = response;
-            Payload = payload;
-            _frame = frame;
-        }
-
-        public RpcResponse Response { get; }
-
-        public ReadOnlyMemory<byte> Payload { get; }
-
-        public void Dispose() => Interlocked.Exchange(ref _frame, null)?.Dispose();
     }
 }
