@@ -1,0 +1,122 @@
+# Generated Service Registry
+
+ShaRPC emits a generated service registry for every compilation that contains valid
+`[ShaRpcService]` interfaces. This lets callers create typed proxies and dispatchers
+without scanning assemblies for generated types.
+
+## What Gets Generated
+
+For a shared contract assembly like this:
+
+```csharp
+using ShaRPC.Core.Attributes;
+
+[ShaRpcService]
+public interface IChatService
+{
+    Task SendAsync(string message, CancellationToken ct = default);
+}
+```
+
+the generator emits:
+
+- `ChatServiceProxy` in the service namespace
+- `ChatServiceDispatcher` in the service namespace
+- extension methods such as `CreateChatServiceProxy()` and `AddChatService(...)`
+- `ShaRPC.Generated.ShaRpcGenerated`, a public factory and registration type
+
+The generated `ShaRpcGenerated` type registers the service with
+`ShaRPC.Core.Generated.ShaRpcServiceRegistry` through generated delegates. No runtime
+type scan is needed.
+
+## Typed Factory Usage
+
+Use `ShaRPC.Generated.ShaRpcGenerated` when you want a generic API that does not depend
+on the generated proxy or dispatcher type names:
+
+```csharp
+using ShaRPC.Core.Client;
+using ShaRPC.Core.Server;
+using ShaRPC.Generated;
+
+IShaRpcClient client = /* connected client */;
+IChatService proxy = ShaRpcGenerated.CreateProxy<IChatService>(client);
+
+var implementation = new ChatService();
+IServiceDispatcher dispatcher =
+    ShaRpcGenerated.CreateDispatcher<IChatService>(implementation);
+```
+
+This is the preferred shape for frameworks, plugin hosts, and sidecars that expose
+`Provide<TService>(...)` or `Remote<TService>()` style APIs.
+
+## Dynamic Factory Usage
+
+When the service type is known only at runtime, use the non-generic overloads:
+
+```csharp
+using ShaRPC.Core.Client;
+using ShaRPC.Core.Server;
+using ShaRPC.Generated;
+
+Type serviceType = typeof(IChatService);
+IShaRpcClient client = /* connected client */;
+object proxy = ShaRpcGenerated.CreateProxy(serviceType, client);
+
+object implementation = new ChatService();
+IServiceDispatcher dispatcher =
+    ShaRpcGenerated.CreateDispatcher(serviceType, implementation);
+```
+
+The implementation passed to `CreateDispatcher(Type, object)` must implement the
+service interface, otherwise the registry throws an `ArgumentException`.
+
+## Runtime Registry
+
+The lower-level runtime registry is public for advanced hosts:
+
+```csharp
+using ShaRPC.Core.Generated;
+
+var proxy = ShaRpcServiceRegistry.CreateProxy<IChatService>(client);
+var dispatcher = ShaRpcServiceRegistry.CreateDispatcher<IChatService>(implementation);
+```
+
+Normally you should call `ShaRPC.Generated.ShaRpcGenerated` from the service assembly.
+The runtime registry is useful when infrastructure code should not reference the
+generated namespace directly.
+
+## Assembly Scope
+
+The registry is generated per compilation. If a solution has multiple shared contract
+assemblies, each assembly gets its own `ShaRPC.Generated.ShaRpcGenerated` type that
+registers the services declared in that assembly.
+
+When a registry lookup is requested and the service has not been registered yet,
+`ShaRpcServiceRegistry` performs one targeted lookup for the generated registration type
+in the service interface's assembly and runs its static constructor. It does not enumerate
+all types in the assembly.
+
+If the source generator did not run, the registry throws a diagnostic exception that
+names the service interface and assembly and tells the caller to mark the interface with
+`[ShaRpcService]` and ensure the ShaRPC generator is referenced.
+
+## Bidirectional Peer Example
+
+The generated registry is what allows `ShaRpcPeer` to expose a compact typed API:
+
+```csharp
+using ShaRPC.Core.Peer;
+using ShaRPC.Generated;
+
+var peer = await ShaRpcPeer.StartAsync(
+    connection,
+    serializer,
+    builder => builder.AddDispatcher(
+        ShaRpcGenerated.CreateDispatcher<IChatService>(new ChatService())),
+    cancellationToken);
+
+IClientCallbacks callbacks = peer.CreateProxy<IClientCallbacks>();
+```
+
+Both sides can use the same pattern over one duplex connection.

@@ -123,10 +123,21 @@ The source generator creates:
 1. **Proxy** (`MyServiceProxy`) - Client-side stub that serializes calls
 2. **Dispatcher** (`MyServiceDispatcher`) - Server-side router that deserializes and invokes
 3. **Extensions** (`CreateMyServiceProxy()`, `AddMyService()`) - Convenience methods
+4. **Registry factory** (`ShaRpcGenerated`) - Typed proxy/dispatcher factory backed by generated delegates
+
+You can use the generated factory directly when building framework-style APIs:
+
+```csharp
+using ShaRPC.Generated;
+
+var proxy = ShaRpcGenerated.CreateProxy<IMyService>(client);
+var dispatcher = ShaRpcGenerated.CreateDispatcher<IMyService>(new MyService());
+```
 
 ## Next Steps
 
 - [Unity Integration Guide](./unity-integration.md) - Full Unity setup
 - [WebSocket Transport Guide](./websocket-setup.md) - WebSocket setup for browsers and WebGL
+- [Generated Service Registry](./generated-service-registry.md) - Factory and registry usage
 - [Samples](../samples/) - Working examples
 - [API Reference](./api-reference.md) - Detailed API docs

@@ -343,6 +343,7 @@ public static class ShaRpcGenerated
 ```
 
 The runtime registry is available as `ShaRPC.Core.Generated.ShaRpcServiceRegistry` and throws a clear diagnostic when no generated factory is registered for a service interface.
+See [Generated Service Registry](./generated-service-registry.md) for examples and assembly-scope details.
 
 ---
 
