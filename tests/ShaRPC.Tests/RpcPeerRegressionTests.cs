@@ -13,7 +13,7 @@ using Xunit;
 
 namespace ShaRPC.Tests;
 
-public class RpcPeerRegressionTests
+public sealed class RpcPeerRegressionTests
 {
     private static MessagePackRpcSerializer NewSerializer() => new();
 
@@ -66,7 +66,7 @@ public class RpcPeerRegressionTests
     }
 
     [Fact]
-    public async Task InboundQueueCapacity_WaitMode_LimitsDispatchConcurrency()
+    public async Task WaitQueue_DispatchesSeriallyAndAppliesBackpressure()
     {
         var (clientConnection, serverConnection) = InMemoryPipe.CreateConnectionPair();
         var dispatcher = new BlockingDispatcher();
@@ -295,4 +295,5 @@ public class RpcPeerRegressionTests
             }
         }
     }
+
 }

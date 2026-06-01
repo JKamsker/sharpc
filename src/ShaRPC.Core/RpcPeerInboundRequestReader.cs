@@ -11,11 +11,13 @@ internal static class RpcPeerInboundRequestReader
         ISerializer serializer,
         out RpcRequest request,
         out ReadOnlyMemory<byte> payload,
-        out string protocolError)
+        out string protocolError,
+        out Exception? error)
     {
         request = default;
         payload = ReadOnlyMemory<byte>.Empty;
         protocolError = string.Empty;
+        error = null;
 
         if (!MessageFramer.TryReadFrame(frame.Memory, out _, out _, out var envelope, out payload))
         {
@@ -28,9 +30,10 @@ internal static class RpcPeerInboundRequestReader
             request = serializer.Deserialize<RpcRequest>(envelope);
             return true;
         }
-        catch
+        catch (Exception ex)
         {
             protocolError = "Malformed request envelope.";
+            error = ex;
             return false;
         }
     }

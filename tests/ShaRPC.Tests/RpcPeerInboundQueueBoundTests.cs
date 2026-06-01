@@ -1,5 +1,4 @@
 using System.Buffers;
-using System.Threading.Channels;
 using ShaRPC.Core;
 using ShaRPC.Core.Buffers;
 using ShaRPC.Core.Protocol;
@@ -58,8 +57,10 @@ public sealed class RpcPeerInboundQueueBoundTests
         var dispatcher = new BlockingDispatcher();
         var first = CreateRequestFrame(serializer, 1);
         var second = CreateRequestFrame(serializer, 2);
+        var third = CreateRequestFrame(serializer, 3);
         connection.Enqueue(first);
         connection.Enqueue(second);
+        connection.Enqueue(third);
 
         await using var peer = RpcPeer
             .Over(
@@ -75,8 +76,9 @@ public sealed class RpcPeerInboundQueueBoundTests
             .Start();
 
         await dispatcher.FirstEntered.WaitAsync(TimeSpan.FromSeconds(1));
-        await connection.WaitForReceiveCountAsync(2, TimeSpan.FromSeconds(1));
-        await AssertDisposedAsync(second);
+        await connection.WaitForReceiveCountAsync(3, TimeSpan.FromSeconds(1));
+        await connection.WaitForReceiveAttemptAsync(4, TimeSpan.FromSeconds(1));
+        Assert.True(IsDisposed(second) || IsDisposed(third));
 
         dispatcher.Release();
     }
@@ -115,7 +117,7 @@ public sealed class RpcPeerInboundQueueBoundTests
         Assert.Equal(MessageType.Error, messageType);
         Assert.Equal(0, payload.Length);
         Assert.False(response.IsSuccess);
-        Assert.Equal("ShaRpcInboundRejected", response.ErrorType);
+        Assert.Equal(RpcErrorTypes.InboundRejected, response.ErrorType);
         Assert.Equal("This peer does not accept inbound calls.", response.ErrorMessage);
     }
 
@@ -132,24 +134,17 @@ public sealed class RpcPeerInboundQueueBoundTests
             },
             ReadOnlySpan<byte>.Empty);
 
-    private static async Task AssertDisposedAsync(Payload frame)
+    private static bool IsDisposed(Payload frame)
     {
-        var timeoutAt = DateTime.UtcNow + TimeSpan.FromSeconds(1);
-        while (DateTime.UtcNow < timeoutAt)
+        try
         {
-            try
-            {
-                _ = frame.Memory;
-            }
-            catch (ObjectDisposedException)
-            {
-                return;
-            }
-
-            await Task.Delay(TimeSpan.FromMilliseconds(10));
+            _ = frame.Memory;
+            return false;
         }
-
-        Assert.Throws<ObjectDisposedException>(() => frame.Memory);
+        catch (ObjectDisposedException)
+        {
+            return true;
+        }
     }
 
     private sealed class BlockingDispatcher : IServiceDispatcher
@@ -180,104 +175,4 @@ public sealed class RpcPeerInboundQueueBoundTests
         public void Release() => _release.TrySetResult(true);
     }
 
-    private sealed class ScriptedConnection : IConnection
-    {
-        private readonly Channel<Payload> _inbound = Channel.CreateUnbounded<Payload>(
-            new UnboundedChannelOptions { SingleReader = true });
-        private readonly List<(int Count, TaskCompletionSource<bool> Completion)> _waiters = new();
-        private int _disposed;
-        private int _receiveCount;
-
-        public bool IsConnected => Volatile.Read(ref _disposed) == 0;
-
-        public string RemoteEndpoint => "scripted://remote";
-
-        public int ReceiveCount => Volatile.Read(ref _receiveCount);
-
-        public void Enqueue(Payload frame) => _inbound.Writer.TryWrite(frame);
-
-        public Task SendAsync(ReadOnlyMemory<byte> data, CancellationToken ct = default) =>
-            Task.CompletedTask;
-
-        public async Task<Payload> ReceiveAsync(CancellationToken ct = default)
-        {
-            try
-            {
-                var frame = await _inbound.Reader.ReadAsync(ct).ConfigureAwait(false);
-                CompleteWaiters(Interlocked.Increment(ref _receiveCount));
-                return frame;
-            }
-            catch (ChannelClosedException)
-            {
-                return Payload.Empty;
-            }
-        }
-
-        public Task WaitForReceiveCountAsync(int count, TimeSpan timeout)
-        {
-            if (ReceiveCount >= count)
-            {
-                return Task.CompletedTask;
-            }
-
-            var completion = new TaskCompletionSource<bool>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            lock (_waiters)
-            {
-                if (ReceiveCount >= count)
-                {
-                    return Task.CompletedTask;
-                }
-
-                _waiters.Add((count, completion));
-            }
-
-            return completion.Task.WaitAsync(timeout);
-        }
-
-        public ValueTask DisposeAsync()
-        {
-            if (Interlocked.Exchange(ref _disposed, 1) != 0)
-            {
-                return default;
-            }
-
-            _inbound.Writer.TryComplete();
-            while (_inbound.Reader.TryRead(out var frame))
-            {
-                frame.Dispose();
-            }
-
-            return default;
-        }
-
-        private void CompleteWaiters(int count)
-        {
-            List<TaskCompletionSource<bool>>? completed = null;
-            lock (_waiters)
-            {
-                for (var i = _waiters.Count - 1; i >= 0; i--)
-                {
-                    if (count < _waiters[i].Count)
-                    {
-                        continue;
-                    }
-
-                    completed ??= new List<TaskCompletionSource<bool>>();
-                    completed.Add(_waiters[i].Completion);
-                    _waiters.RemoveAt(i);
-                }
-            }
-
-            if (completed is null)
-            {
-                return;
-            }
-
-            foreach (var completion in completed)
-            {
-                completion.TrySetResult(true);
-            }
-        }
-    }
 }

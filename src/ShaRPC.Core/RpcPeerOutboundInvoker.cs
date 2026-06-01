@@ -10,21 +10,25 @@ internal sealed class RpcPeerOutboundInvoker : IRpcInvoker
 {
     private readonly ISerializer _serializer;
     private readonly TimeSpan _timeout;
+    private readonly int _maxPendingRequests;
     private readonly Action _ensureStarted;
     private readonly Func<ReadOnlyMemory<byte>, CancellationToken, Task> _sendAsync;
     private readonly ShaRpcPendingRequests _pending = new();
+    private readonly RpcPeerCancelFrameSender _cancelFrames;
     private int _messageIdCounter;
 
     public RpcPeerOutboundInvoker(
         ISerializer serializer,
-        TimeSpan timeout,
+        RpcPeerOptions options,
         Action ensureStarted,
         Func<ReadOnlyMemory<byte>, CancellationToken, Task> sendAsync)
     {
         _serializer = serializer;
-        _timeout = timeout;
+        _timeout = options.RequestTimeout;
+        _maxPendingRequests = options.MaxPendingRequests;
         _ensureStarted = ensureStarted;
         _sendAsync = sendAsync;
+        _cancelFrames = new RpcPeerCancelFrameSender(sendAsync);
     }
 
     public async Task<TResponse> InvokeAsync<TRequest, TResponse>(
@@ -128,6 +132,8 @@ internal sealed class RpcPeerOutboundInvoker : IRpcInvoker
 
     public void FailPending(Exception error) => _pending.FailAll(error);
 
+    public Task StopCancelFramesAsync() => _cancelFrames.StopAsync();
+
     private Task<ReceivedResponse> SendRequestAsync<TRequest>(
         string service,
         string method,
@@ -136,7 +142,7 @@ internal sealed class RpcPeerOutboundInvoker : IRpcInvoker
         CancellationToken ct)
     {
         _ensureStarted();
-        var pending = ReservePendingRequest();
+        var pending = ReservePendingRequest(ct);
         try
         {
             var envelope = CreateEnvelope(pending.MessageId, service, method, instanceId);
@@ -168,7 +174,7 @@ internal sealed class RpcPeerOutboundInvoker : IRpcInvoker
         CancellationToken ct)
     {
         _ensureStarted();
-        var pending = ReservePendingRequest();
+        var pending = ReservePendingRequest(ct);
         try
         {
             var envelope = CreateEnvelope(pending.MessageId, service, method, instanceId);
@@ -193,16 +199,24 @@ internal sealed class RpcPeerOutboundInvoker : IRpcInvoker
         }
     }
 
-    private (int MessageId, TaskCompletionSource<ReceivedResponse> Completion) ReservePendingRequest()
+    private (int MessageId, TaskCompletionSource<ReceivedResponse> Completion) ReservePendingRequest(CancellationToken ct)
     {
-        while (true)
+        if (_pending.Count >= _maxPendingRequests)
         {
+            throw new ShaRpcException("Maximum pending requests reached.");
+        }
+
+        for (var attempts = 0; attempts < _maxPendingRequests; attempts++)
+        {
+            ct.ThrowIfCancellationRequested();
             var messageId = Interlocked.Increment(ref _messageIdCounter);
             if (messageId != 0 && _pending.TryAdd(messageId, out var tcs))
             {
                 return (messageId, tcs);
             }
         }
+
+        throw new ShaRpcException("Unable to reserve a request message id.");
     }
 
     private static RpcRequest CreateEnvelope(
@@ -254,7 +268,7 @@ internal sealed class RpcPeerOutboundInvoker : IRpcInvoker
                 {
                     if (requestSent)
                     {
-                        _ = SendCancelFrameAsync(messageId);
+                        _cancelFrames.TrySend(messageId);
                     }
 
                     ct.ThrowIfCancellationRequested();
@@ -275,22 +289,6 @@ internal sealed class RpcPeerOutboundInvoker : IRpcInvoker
         finally
         {
             _pending.Remove(messageId, tcs.Task, consumed);
-        }
-    }
-
-    private async Task SendCancelFrameAsync(int messageId)
-    {
-        try
-        {
-            using var frame = MessageFramer.FrameToPayload(
-                messageId,
-                MessageType.Cancel,
-                ReadOnlySpan<byte>.Empty);
-            await _sendAsync(frame.Memory, CancellationToken.None).ConfigureAwait(false);
-        }
-        catch
-        {
-            // Cancellation is best-effort.
         }
     }
 }

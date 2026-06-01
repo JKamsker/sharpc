@@ -8,6 +8,8 @@ internal sealed class ShaRpcPendingRequests
 {
     private readonly ConcurrentDictionary<int, TaskCompletionSource<ReceivedResponse>> _requests = new();
 
+    public int Count => _requests.Count;
+
     public bool TryAdd(int messageId, out TaskCompletionSource<ReceivedResponse> tcs)
     {
         tcs = new TaskCompletionSource<ReceivedResponse>(TaskCreationOptions.RunContinuationsAsynchronously);

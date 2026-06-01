@@ -15,7 +15,8 @@ internal sealed class RpcPeerInboundDispatcher
     private readonly ISerializer _serializer;
     private readonly RpcPeerResponseBuilder _responseBuilder;
     private readonly Func<ReadOnlyMemory<byte>, CancellationToken, Task> _sendAsync;
-    private readonly Action<int, MessageType, string> _protocolError;
+    private readonly Action<int, MessageType, string, Exception?> _protocolError;
+    private readonly Action<RpcPeerInboundRequest, Exception> _dispatchError;
     private readonly RpcPeerInboundRequestQueue? _queue;
     private int _stopped;
 
@@ -23,7 +24,8 @@ internal sealed class RpcPeerInboundDispatcher
         ISerializer serializer,
         RpcPeerOptions options,
         Func<ReadOnlyMemory<byte>, CancellationToken, Task> sendAsync,
-        Action<int, MessageType, string> protocolError)
+        Action<int, MessageType, string, Exception?> protocolError,
+        Action<RpcPeerInboundRequest, Exception> dispatchError)
     {
         _serializer = serializer;
         _responseBuilder = new RpcPeerResponseBuilder(
@@ -33,23 +35,10 @@ internal sealed class RpcPeerInboundDispatcher
             options.RejectInboundCalls);
         _sendAsync = sendAsync;
         _protocolError = protocolError;
-        if (!Enum.IsDefined(typeof(ShaRpcQueueFullMode), options.QueueFullMode))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(options),
-                options.QueueFullMode,
-                "Unknown queue full mode.");
-        }
+        _dispatchError = dispatchError;
         if (options.InboundQueueCapacity is not { } capacity)
         {
             return;
-        }
-        if (capacity <= 0)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(options),
-                capacity,
-                "Inbound queue capacity must be greater than zero.");
         }
         _queue = new RpcPeerInboundRequestQueue(
             capacity,
@@ -81,9 +70,15 @@ internal sealed class RpcPeerInboundDispatcher
             return false;
         }
 
-        if (!TryCreateInboundRequest(frame, messageId, loopCt, out var inbound, out var protocolError))
+        if (!TryCreateInboundRequest(
+            frame,
+            messageId,
+            loopCt,
+            out var inbound,
+            out var protocolError,
+            out var protocolException))
         {
-            _protocolError(messageId, MessageType.Request, protocolError);
+            _protocolError(messageId, MessageType.Request, protocolError, protocolException);
             using var errorFrame = _responseBuilder.BuildProtocolErrorFrame(messageId, protocolError);
             await _sendAsync(errorFrame.Memory, loopCt).ConfigureAwait(false);
             return false;
@@ -136,15 +131,18 @@ internal sealed class RpcPeerInboundDispatcher
         int messageId,
         CancellationToken loopCt,
         out RpcPeerInboundRequest inbound,
-        out string protocolError)
+        out string protocolError,
+        out Exception? protocolException)
     {
         inbound = default;
+        protocolException = null;
         if (!RpcPeerInboundRequestReader.TryRead(
             frame,
             _serializer,
             out var request,
             out var payload,
-            out protocolError))
+            out protocolError,
+            out protocolException))
         {
             return false;
         }
@@ -163,9 +161,32 @@ internal sealed class RpcPeerInboundDispatcher
 
     private void StartRequest(RpcPeerInboundRequest inbound)
     {
-        var task = ProcessRequestAsync(inbound);
-        _activeTasks[inbound.MessageId] = task;
-        if (task.IsCompleted)
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!_activeTasks.TryAdd(inbound.MessageId, completion.Task))
+        {
+            inbound.Frame.Dispose();
+            ReleaseRequest(inbound);
+            return;
+        }
+
+        _ = ProcessTrackedRequestAsync(inbound, completion);
+    }
+
+    private async Task ProcessTrackedRequestAsync(
+        RpcPeerInboundRequest inbound,
+        TaskCompletionSource<bool> completion)
+    {
+        try
+        {
+            await ProcessRequestAsync(inbound).ConfigureAwait(false);
+            completion.TrySetResult(true);
+        }
+        catch (Exception ex)
+        {
+            completion.TrySetException(ex);
+            RpcDiagnostics.Report("Tracked inbound request failed", ex);
+        }
+        finally
         {
             _activeTasks.TryRemove(inbound.MessageId, out _);
         }
@@ -189,14 +210,16 @@ internal sealed class RpcPeerInboundDispatcher
         {
             // Cancelled work sends no response frame.
         }
-        catch
+        catch (Exception ex)
         {
-            // Dispatch/send failures are observed and swallowed per request.
+            _dispatchError(inbound, ex);
+            RpcDiagnostics.Report(
+                $"Inbound request {inbound.Request.ServiceName}.{inbound.Request.MethodName} failed",
+                ex);
         }
         finally
         {
             ReleaseRequest(inbound);
-            _activeTasks.TryRemove(inbound.MessageId, out _);
         }
     }
 

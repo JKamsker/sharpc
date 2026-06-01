@@ -160,15 +160,17 @@ generated proxies for services provided by the remote side.
 | `Disconnected` | Raised when a remote close or read error ends the read loop; local close/dispose does not raise it. Handlers run on the teardown path and should not block |
 | `ReadError` | Raised when the read loop faults |
 | `ProtocolError` | Raised when a malformed or unsupported protocol frame is observed |
+| `DispatchError` | Raised when inbound request dispatch or response sending fails after a request was accepted |
 | `CloseAsync()` / `DisposeAsync()` | Idempotently disposes the peer and underlying connection; closed peers cannot be restarted |
 
 `RpcPeerOptions.RejectInboundCalls` returns an explicit remote error for inbound requests,
 but it is not an authentication or authorization boundary. Any connected peer can still send
 request frames; secure transports or application-level checks should enforce trust.
-Leaving `RpcPeerOptions.InboundQueueCapacity` unset dispatches inbound peer requests
-immediately and does not cap concurrent dispatcher work; use it only with trusted peers
-or externally bounded transports. When a capacity is set, `Wait` mode bounds queued
-requests and applies read-side backpressure instead of retaining unbounded request frames.
+`RpcPeerOptions.InboundQueueCapacity` defaults to a bounded queue. Setting it to `null`
+dispatches inbound peer requests immediately and does not cap concurrent dispatcher work;
+use that only with trusted peers or externally bounded transports. In `Wait` mode, queued
+requests are bounded and read-side backpressure applies instead of retaining unbounded
+request frames.
 
 #### `ShaRpcPeer`
 Bidirectional endpoint over one duplex `IConnection`. One peer can serve local dispatchers and create generated proxies for the remote side over the same connection.

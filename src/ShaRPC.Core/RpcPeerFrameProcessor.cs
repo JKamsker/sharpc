@@ -7,12 +7,12 @@ internal sealed class RpcPeerFrameProcessor
 {
     private readonly RpcPeerInboundDispatcher _inbound;
     private readonly RpcPeerOutboundInvoker _outbound;
-    private readonly Action<int, MessageType, string> _protocolError;
+    private readonly Action<int, MessageType, string, Exception?> _protocolError;
 
     public RpcPeerFrameProcessor(
         RpcPeerInboundDispatcher inbound,
         RpcPeerOutboundInvoker outbound,
-        Action<int, MessageType, string> protocolError)
+        Action<int, MessageType, string, Exception?> protocolError)
     {
         _inbound = inbound;
         _outbound = outbound;
@@ -23,7 +23,7 @@ internal sealed class RpcPeerFrameProcessor
     {
         if (!MessageFramer.TryReadFrameHeader(frame.Memory, out var messageId, out var messageType))
         {
-            _protocolError(0, default, "Malformed frame header.");
+            _protocolError(0, default, "Malformed frame header.", null);
             return true;
         }
 
@@ -38,7 +38,7 @@ internal sealed class RpcPeerFrameProcessor
                 _inbound.Cancel(messageId);
                 return true;
             default:
-                _protocolError(messageId, messageType, "Unknown message type.");
+                _protocolError(messageId, messageType, "Unknown message type.", null);
                 return true;
         }
     }

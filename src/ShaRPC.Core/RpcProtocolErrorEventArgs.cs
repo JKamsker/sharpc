@@ -12,11 +12,22 @@ public sealed class RpcProtocolErrorEventArgs : EventArgs
         int messageId,
         MessageType messageType,
         string message)
+        : this(remoteEndpoint, messageId, messageType, message, error: null)
+    {
+    }
+
+    public RpcProtocolErrorEventArgs(
+        string remoteEndpoint,
+        int messageId,
+        MessageType messageType,
+        string message,
+        Exception? error)
     {
         RemoteEndpoint = remoteEndpoint;
         MessageId = messageId;
         MessageType = messageType;
         Message = message;
+        Error = error;
     }
 
     /// <summary>The remote endpoint string of the channel that sent the frame.</summary>
@@ -30,4 +41,7 @@ public sealed class RpcProtocolErrorEventArgs : EventArgs
 
     /// <summary>A safe diagnostic message describing the protocol problem.</summary>
     public string Message { get; }
+
+    /// <summary>The underlying parse or deserialization error, when one was available.</summary>
+    public Exception? Error { get; }
 }

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Threading.Channels;
 using System.Net;
 using Shared;
@@ -16,7 +17,7 @@ namespace ShaRPC.Tests;
 /// duplex channel: one-directional calls, bidirectional calls on a single connection, and
 /// the explicit reject-inbound behaviour.
 /// </summary>
-public class PeerTests
+public sealed class PeerTests
 {
     private static MessagePackRpcSerializer NewSerializer() => new();
 
@@ -216,13 +217,13 @@ public class PeerTests
     private sealed class RecordingNotifications : IPlayerNotifications
     {
         private readonly string _identity;
-        public List<string> Messages { get; } = new();
+        public ConcurrentQueue<string> Messages { get; } = new();
 
         public RecordingNotifications(string identity) => _identity = identity;
 
         public Task NotifyAsync(string message, CancellationToken ct = default)
         {
-            Messages.Add(message);
+            Messages.Enqueue(message);
             return Task.CompletedTask;
         }
 

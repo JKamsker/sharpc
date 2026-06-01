@@ -148,11 +148,13 @@ public sealed record RpcPeerOptions
     // an authentication or authorization boundary.
     public bool RejectInboundCalls { get; init; }
 
-    // Backpressure for inbound dispatch. Null dispatches immediately and does not cap
-    // concurrent dispatcher work; use it only with trusted peers or externally bounded
-    // transports. In Wait mode, queued requests are bounded and excess request frames
-    // apply read-side backpressure until dispatch queue space is available.
+    // Backpressure for inbound dispatch. Defaults to a bounded queue. Null dispatches
+    // immediately and does not cap concurrent dispatcher work; use it only with trusted
+    // peers or externally bounded transports. In Wait mode, queued requests are bounded
+    // and excess request frames apply read-side backpressure until dispatch queue space is
+    // available.
     public int? InboundQueueCapacity { get; init; }
+    public int MaxPendingRequests { get; init; } = 4096;
     public ShaRpcQueueFullMode QueueFullMode { get; init; } = ShaRpcQueueFullMode.Wait;
 }
 ```

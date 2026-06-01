@@ -1,0 +1,71 @@
+using System.Collections.Concurrent;
+
+namespace ShaRPC.Core;
+
+internal sealed class RpcHostPeerCollection
+{
+    private readonly ConcurrentDictionary<RpcPeer, byte> _peers = new();
+    private readonly ConcurrentDictionary<Task, byte> _cleanupTasks = new();
+
+    public void Add(RpcPeer peer) => _peers.TryAdd(peer, 0);
+
+    public void Remove(RpcPeer peer) => _peers.TryRemove(peer, out _);
+
+    public void DisposeInBackground(RpcPeer peer)
+    {
+        var cleanupTask = Task.Run(async () =>
+        {
+            try
+            {
+                await peer.DisposeAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+                // Best-effort cleanup.
+            }
+        });
+        _cleanupTasks.TryAdd(cleanupTask, 0);
+        _ = cleanupTask.ContinueWith(
+            static (task, state) =>
+                ((ConcurrentDictionary<Task, byte>)state!).TryRemove(task, out _),
+            _cleanupTasks,
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    public async Task CloseAllAsync()
+    {
+        foreach (var peer in _peers.Keys)
+        {
+            try
+            {
+                await peer.DisposeAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+                // Best-effort cleanup.
+            }
+        }
+
+        _peers.Clear();
+    }
+
+    public async Task AwaitCleanupAsync()
+    {
+        var tasks = _cleanupTasks.Keys.ToArray();
+        if (tasks.Length == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await Task.WhenAll(tasks).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Peer cleanup is best-effort and each task observes its own dispose failures.
+        }
+    }
+}

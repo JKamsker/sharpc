@@ -33,7 +33,7 @@ internal sealed class RpcPeerResponseBuilder
         {
             return _inner.BuildErrorFrame(
                 messageId,
-                new RpcError("This peer does not accept inbound calls.", "ShaRpcInboundRejected"));
+                new RpcError("This peer does not accept inbound calls.", RpcErrorTypes.InboundRejected));
         }
 
         return await _inner.BuildAsync(request, messageId, payload, _registry, ct).ConfigureAwait(false);

@@ -9,17 +9,31 @@ internal static class ShaRpcGeneratedAssemblyCatalog
     private const string GeneratedFactoryTypeName = "ShaRPC.Generated.ShaRpcGenerated";
 
     private static readonly ConcurrentDictionary<Assembly, IReadOnlyList<ShaRpcGeneratedService>> s_serviceCatalogs = new();
-    private static readonly ConcurrentDictionary<Assembly, bool> s_registrationAttempts = new();
+    private static readonly ConcurrentDictionary<Assembly, Lazy<bool>> s_registrationAttempts = new();
     private static readonly ConcurrentDictionary<Assembly, SinkRegistrar<IShaRpcServiceRegistrationSink>> s_serviceSinks = new();
     private static readonly ConcurrentDictionary<Assembly, SinkRegistrar<IShaRpcGeneratedServiceRegistrationSink>> s_generatedSinks = new();
 
     public static bool EnsureRegistered(Assembly assembly)
     {
-        if (!s_registrationAttempts.TryAdd(assembly, true))
-        {
-            return FindGeneratedType(assembly) is not null;
-        }
+        var registration = s_registrationAttempts.GetOrAdd(
+            assembly,
+            static assembly => new Lazy<bool>(
+                () => RegisterGeneratedFactory(assembly),
+                LazyThreadSafetyMode.ExecutionAndPublication));
 
+        try
+        {
+            return registration.Value;
+        }
+        catch
+        {
+            s_registrationAttempts.TryRemove(assembly, out _);
+            throw;
+        }
+    }
+
+    private static bool RegisterGeneratedFactory(Assembly assembly)
+    {
         var generatedType = FindGeneratedType(assembly);
         if (generatedType is null)
         {
@@ -33,7 +47,6 @@ internal static class ShaRpcGeneratedAssemblyCatalog
         }
         catch (Exception ex)
         {
-            s_registrationAttempts.TryRemove(assembly, out _);
             throw new InvalidOperationException(
                 $"ShaRPC generated factory registration failed for assembly '{assembly.FullName}'.",
                 ex);
@@ -65,7 +78,6 @@ internal static class ShaRpcGeneratedAssemblyCatalog
         var generatedType = FindGeneratedType(assembly);
         if (generatedType is null)
         {
-            s_registrationAttempts.TryAdd(assembly, true);
             return Array.Empty<ShaRpcGeneratedService>();
         }
 

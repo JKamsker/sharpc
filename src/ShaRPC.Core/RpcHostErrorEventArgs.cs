@@ -7,9 +7,13 @@ public sealed class RpcHostErrorEventArgs : EventArgs
 {
     public RpcHostErrorEventArgs(Exception exception)
     {
-        Exception = exception;
+        Error = exception;
     }
 
     /// <summary>The accept-loop exception.</summary>
-    public Exception Exception { get; }
+    public Exception Error { get; }
+
+    /// <summary>The accept-loop exception.</summary>
+    [Obsolete("Use Error.")]
+    public Exception Exception => Error;
 }

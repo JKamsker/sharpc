@@ -77,7 +77,7 @@ public sealed class RpcPeerProtocolRegressionTests
             () => client.InvokeAsync<int>(ThrowingDispatcher.Service, "Throw"));
 
         Assert.Equal("Internal error.", ex.Message);
-        Assert.Equal("ShaRpcInternalError", ex.RemoteExceptionType);
+        Assert.Equal(RpcErrorTypes.InternalError, ex.RemoteExceptionType);
         Assert.DoesNotContain("C:\\secret", ex.Message);
     }
 

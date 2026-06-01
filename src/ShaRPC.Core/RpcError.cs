@@ -11,7 +11,7 @@ internal static class RpcErrors
     public static RpcError FromException(Exception exception) =>
         exception is ShaRpcException
             ? new RpcError(Truncate(exception.Message), exception.GetType().Name)
-            : new RpcError("Internal error.", "ShaRpcInternalError");
+            : new RpcError("Internal error.", RpcErrorTypes.InternalError);
 
     public static RpcError ServiceNotFound(string serviceName) =>
         new(

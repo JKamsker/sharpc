@@ -19,9 +19,11 @@ internal static class RpcEventHandlerInvoker
             {
                 ((EventHandler<TEventArgs>)subscriber).Invoke(sender, args);
             }
-            catch
+            catch (Exception ex)
             {
-                // Event handlers are user code; one bad handler must not fault RPC internals.
+                RpcDiagnostics.Report(
+                    $"Event handler '{subscriber.Method.DeclaringType?.FullName}.{subscriber.Method.Name}' failed",
+                    ex);
             }
         }
     }

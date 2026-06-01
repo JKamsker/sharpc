@@ -1,0 +1,113 @@
+using ShaRPC.Core.Buffers;
+using ShaRPC.Core.Exceptions;
+using ShaRPC.Core.Transport;
+
+namespace ShaRPC.Core;
+
+internal sealed class RpcPeerReadLoop
+{
+    private readonly IRpcChannel _channel;
+    private readonly RpcPeerInboundDispatcher _inbound;
+    private readonly RpcPeerOutboundInvoker _outbound;
+    private readonly RpcPeerFrameProcessor _frameProcessor;
+    private readonly Action _markClosed;
+    private readonly Action<Exception> _readError;
+    private readonly Action<Exception?> _disconnected;
+
+    public RpcPeerReadLoop(
+        IRpcChannel channel,
+        RpcPeerInboundDispatcher inbound,
+        RpcPeerOutboundInvoker outbound,
+        RpcPeerFrameProcessor frameProcessor,
+        Action markClosed,
+        Action<Exception> readError,
+        Action<Exception?> disconnected)
+    {
+        _channel = channel;
+        _inbound = inbound;
+        _outbound = outbound;
+        _frameProcessor = frameProcessor;
+        _markClosed = markClosed;
+        _readError = readError;
+        _disconnected = disconnected;
+    }
+
+    public async Task RunAsync(CancellationToken ct)
+    {
+        Exception? readError = null;
+        try
+        {
+            await ReadFramesAsync(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Expected during shutdown.
+        }
+        catch (Exception ex)
+        {
+            readError = ex;
+        }
+        finally
+        {
+            if (!ct.IsCancellationRequested)
+            {
+                await StopAfterRemoteCloseAsync(readError).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private async Task ReadFramesAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested && _channel.IsConnected)
+        {
+            var frame = await ReceiveFrameAsync(ct).ConfigureAwait(false);
+            if (frame.Length == 0)
+            {
+                frame.Dispose();
+                break;
+            }
+
+            var disposeFrame = true;
+            try
+            {
+                disposeFrame = await _frameProcessor.ShouldDisposeAsync(frame, ct).ConfigureAwait(false);
+            }
+            finally
+            {
+                if (disposeFrame)
+                {
+                    frame.Dispose();
+                }
+            }
+        }
+    }
+
+    private async Task<Payload> ReceiveFrameAsync(CancellationToken ct)
+    {
+        try
+        {
+            return await _channel.ReceiveAsync(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            return Payload.Empty;
+        }
+    }
+
+    private async Task StopAfterRemoteCloseAsync(Exception? readError)
+    {
+        _markClosed();
+        _outbound.FailPending(
+            readError is null
+                ? new ShaRpcConnectionException("Connection closed.")
+                : new ShaRpcConnectionException("Connection lost.", readError));
+        await _inbound.StopAsync().ConfigureAwait(false);
+
+        if (readError is not null)
+        {
+            _readError(readError);
+        }
+
+        _disconnected(readError);
+    }
+}
