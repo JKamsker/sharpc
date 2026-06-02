@@ -5,7 +5,7 @@ namespace ShaRPC.Core.Transport;
 /// <summary>
 /// A duplex, framed, bidirectional channel — the transport unit a <see cref="ShaRPC.Core.RpcPeer"/>
 /// runs on. Responses flow back over the same channel, so it is always bidirectional even when the
-/// call direction is one-way. <see cref="IConnection"/> is the legacy spelling and adds nothing.
+/// call direction is one-way. Transports return this directly; implement it to add a custom transport.
 /// </summary>
 public interface IRpcChannel : IAsyncDisposable
 {

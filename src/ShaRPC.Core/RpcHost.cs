@@ -250,7 +250,7 @@ public sealed class RpcHost : IAsyncDisposable
         }
     }
 
-    private async Task AddPeerAsync(IConnection connection)
+    private async Task AddPeerAsync(IRpcChannel connection)
     {
         var peer = RpcPeer.Over(connection, _serializer, _options);
         var configure = _configure.Snapshot();

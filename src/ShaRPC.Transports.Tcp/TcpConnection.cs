@@ -11,7 +11,7 @@ namespace ShaRPC.Transports.Tcp;
 /// <summary>
 /// TCP-based connection implementation.
 /// </summary>
-public sealed class TcpConnection : IConnection
+public sealed class TcpConnection : IRpcChannel
 {
     /// <summary>Default inter-read idle timeout applied to an in-progress frame read (30 seconds).</summary>
     public static readonly TimeSpan DefaultFrameReadIdleTimeout = TimeSpan.FromSeconds(30);

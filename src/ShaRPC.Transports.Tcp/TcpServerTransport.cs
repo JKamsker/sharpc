@@ -63,7 +63,7 @@ public sealed class TcpServerTransport : IServerTransport
         return Task.CompletedTask;
     }
 
-    public async Task<IConnection> AcceptAsync(CancellationToken ct = default)
+    public async Task<IRpcChannel> AcceptAsync(CancellationToken ct = default)
     {
         if (Volatile.Read(ref _disposed) != 0)
         {

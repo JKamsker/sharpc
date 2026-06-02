@@ -58,12 +58,11 @@ public interface IRpcChannel : IAsyncDisposable
     bool IsConnected { get; }
     string RemoteEndpoint { get; }
 }
-
-public interface IConnection : IRpcChannel { }   // legacy spelling; adds nothing
 ```
 
-`IConnection` becomes `IRpcChannel` plus nothing, so every existing connection
-(`StreamConnection`, `TcpConnection`, named pipes) is already a channel.
+`IRpcChannel` is the sole transport unit. Every existing connection
+(`StreamConnection`, `TcpConnection`, named pipes) implements it directly. (The transitional
+`IConnection : IRpcChannel` alias has since been removed; transports return `IRpcChannel`.)
 
 > The channel is always duplex because results flow back. The *call* asymmetry lives in
 > the peer (provide vs. get), not in the transport. Genuinely send-only links
@@ -198,8 +197,8 @@ public sealed class RpcHost : IAsyncDisposable
 }
 ```
 
-`IServerTransport` is kept as the listener abstraction (it already yields `IConnection`,
-i.e. `IRpcChannel`). "IChannelListener" is the conceptual name for the same role.
+`IServerTransport` is kept as the listener abstraction (it yields `IRpcChannel`).
+"IChannelListener" is the conceptual name for the same role.
 
 ## Generated surface (per `[ShaRpcService] IGameService`)
 
@@ -260,7 +259,7 @@ await notifier.MessageReceivedAsync("welcome");
 | `ShaRpcClient` / `IShaRpcClient` | `RpcPeer` (get-only) / `IRpcInvoker` | legacy client **removed** |
 | `ShaRpcServer` + accept loop | `RpcHost` + per-conn `RpcPeer` | legacy server **removed**; accept concern is `RpcHost` |
 | `ShaRpcPeer` + `DuplexConnectionSplitter` | `RpcPeer` (one loop) | both **removed** |
-| `IConnection` | `IRpcChannel` (base interface) | `IConnection : IRpcChannel` retained as a legacy alias; existing impls unchanged |
+| `IConnection` | `IRpcChannel` | `IConnection` **removed**; transports return `IRpcChannel` directly (impls unchanged — `IConnection` added no members) |
 | `serverBuilder.AddGameService(impl)` | `peer.ProvideGameService(impl)` | generated `Add…` extension **removed** |
 | `client.CreateGameServiceProxy()` | `peer.GetGameService()` | generated `Create…Proxy` extension **removed** |
 | `RpcRequest` / `RpcResponse` / `ServiceHandle` / `InstanceRegistry` | **unchanged** | wire compatibility preserved |

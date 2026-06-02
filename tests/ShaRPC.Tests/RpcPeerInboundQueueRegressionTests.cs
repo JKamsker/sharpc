@@ -183,14 +183,14 @@ public sealed class RpcPeerInboundQueueRegressionTests
 
     private sealed class QueueFillingNotifications : IPlayerNotifications
     {
-        private readonly IConnection _connection;
+        private readonly IRpcChannel _connection;
         private readonly ISerializer _serializer;
         private readonly int _holdCount;
         private readonly TaskCompletionSource<bool> _sent =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _messageId = 10_000;
 
-        public QueueFillingNotifications(IConnection connection, ISerializer serializer, int holdCount)
+        public QueueFillingNotifications(IRpcChannel connection, ISerializer serializer, int holdCount)
         {
             _connection = connection;
             _serializer = serializer;

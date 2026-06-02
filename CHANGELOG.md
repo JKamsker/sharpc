@@ -12,6 +12,10 @@
   extension methods were removed; the generator now emits only `Provide…(RpcPeer)` and
   `Get…(RpcPeer)`. The generated `ShaRpcGenerated.CreateProxy` factory now takes
   `IRpcInvoker` instead of `IShaRpcClient`.
+- **BREAKING:** Removed the `IConnection` interface; `IRpcChannel` is now the sole transport unit.
+  `IConnection` was a member-less alias of `IRpcChannel`, so migrating is a rename:
+  `ITransport.Connection` and `IServerTransport.AcceptAsync` now return `IRpcChannel`, and custom
+  transports implement `IRpcChannel` directly (the method bodies are unchanged).
 - Added `RpcPeerOptions.MaxConcurrentInboundDispatch` (default 1) for bounded-concurrent
   inbound dispatch per connection: the default dispatches serially, and raising it admits up
   to that many concurrent dispatches while total in-flight inbound work stays bounded by

@@ -224,7 +224,7 @@ Client-side transport interface.
 public interface ITransport : IAsyncDisposable
 {
     Task ConnectAsync(CancellationToken ct = default);
-    IConnection? Connection { get; }
+    IRpcChannel? Connection { get; }
     bool IsConnected { get; }
 }
 ```
@@ -236,7 +236,7 @@ Server-side transport interface.
 public interface IServerTransport : IAsyncDisposable
 {
     Task StartAsync(CancellationToken ct = default);
-    Task<IConnection> AcceptAsync(CancellationToken ct = default);
+    Task<IRpcChannel> AcceptAsync(CancellationToken ct = default);
     Task StopAsync(CancellationToken ct = default);
 }
 ```
@@ -256,27 +256,16 @@ public interface IRpcChannel : IAsyncDisposable
 ```
 
 A `Payload` with `Length` of 0 returned from `ReceiveAsync` signals the channel was closed. The
-caller owns the returned `Payload` and must dispose it.
-
-#### `IConnection`
-Legacy spelling of `IRpcChannel`. It adds no members of its own — every connection is already a
-channel:
-
-```csharp
-public interface IConnection : IRpcChannel { }
-```
-
-`IConnection` is retained because the transport contracts (`ITransport.Connection`,
-`IServerTransport.AcceptAsync`) still return it; it is not marked `[Obsolete]`. Prefer
-`IRpcChannel` in new code.
+caller owns the returned `Payload` and must dispose it. Implement `IRpcChannel` to add a custom
+transport.
 
 #### Built-in single-connection primitives
 
 | Type | Description |
 |------|-------------|
-| `StreamConnection` | `IConnection` over any duplex `Stream`, including `PipeStream`; reads and writes complete ShaRPC length-prefixed frames |
-| `SingleConnectionTransport` | Client `ITransport` adapter for an already-established `IConnection` |
-| `SingleConnectionServerTransport` | Server `IServerTransport` adapter that accepts one already-established `IConnection` |
+| `StreamConnection` | `IRpcChannel` over any duplex `Stream`, including `PipeStream`; reads and writes complete ShaRPC length-prefixed frames |
+| `SingleConnectionTransport` | Client `ITransport` adapter for an already-established `IRpcChannel` |
+| `SingleConnectionServerTransport` | Server `IServerTransport` adapter that accepts one already-established `IRpcChannel` |
 
 ---
 

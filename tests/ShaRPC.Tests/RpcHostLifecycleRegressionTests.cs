@@ -107,7 +107,7 @@ public sealed class RpcHostLifecycleRegressionTests
         Assert.Same(failure, await error.Task.WaitAsync(TimeSpan.FromSeconds(1)));
     }
 
-    private sealed class TrackingConnection : IConnection
+    private sealed class TrackingConnection : IRpcChannel
     {
         private readonly TaskCompletionSource<bool> _disposedSignal =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -160,7 +160,7 @@ public sealed class RpcHostLifecycleRegressionTests
             await _allowStart.Task.WaitAsync(ct).ConfigureAwait(false);
         }
 
-        public Task<IConnection> AcceptAsync(CancellationToken ct = default)
+        public Task<IRpcChannel> AcceptAsync(CancellationToken ct = default)
         {
             Interlocked.Increment(ref _acceptCalls);
             throw new InvalidOperationException("The accept loop should not start.");
@@ -179,17 +179,17 @@ public sealed class RpcHostLifecycleRegressionTests
 
     private sealed class CancelFirstStopServerTransport : IServerTransport
     {
-        private readonly IConnection _connection;
+        private readonly IRpcChannel _connection;
         private int _accepted;
         private int _stopCalls;
 
-        public CancelFirstStopServerTransport(IConnection connection) => _connection = connection;
+        public CancelFirstStopServerTransport(IRpcChannel connection) => _connection = connection;
 
         public int StopCalls => Volatile.Read(ref _stopCalls);
 
         public Task StartAsync(CancellationToken ct = default) => Task.CompletedTask;
 
-        public async Task<IConnection> AcceptAsync(CancellationToken ct = default)
+        public async Task<IRpcChannel> AcceptAsync(CancellationToken ct = default)
         {
             if (Interlocked.Exchange(ref _accepted, 1) == 0)
             {

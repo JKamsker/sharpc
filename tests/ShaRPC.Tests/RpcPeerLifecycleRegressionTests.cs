@@ -187,7 +187,7 @@ public sealed class RpcPeerLifecycleRegressionTests
             serviceType.IsInstanceOfType(_service) ? _service : null;
     }
 
-    private sealed class BlackHoleConnection : IConnection
+    private sealed class BlackHoleConnection : IRpcChannel
     {
         private readonly TaskCompletionSource<bool> _firstSend =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -225,7 +225,7 @@ public sealed class RpcPeerLifecycleRegressionTests
         }
     }
 
-    private sealed class FailingSendConnection : IConnection
+    private sealed class FailingSendConnection : IRpcChannel
     {
         private readonly Payload _frame;
         private readonly bool _closeAfterSendAttempt;

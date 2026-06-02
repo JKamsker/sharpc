@@ -95,7 +95,7 @@ public sealed class ReviewFixRegressionTests
     }
 
     /// <summary>Accepts every send and never produces an inbound frame until disposed.</summary>
-    private sealed class BlackHoleConnection : IConnection
+    private sealed class BlackHoleConnection : IRpcChannel
     {
         private readonly TaskCompletionSource<bool> _disposedSignal =
             new(TaskCreationOptions.RunContinuationsAsynchronously);

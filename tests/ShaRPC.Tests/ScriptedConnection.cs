@@ -4,7 +4,7 @@ using ShaRPC.Core.Transport;
 
 namespace ShaRPC.Tests;
 
-internal sealed class ScriptedConnection : IConnection
+internal sealed class ScriptedConnection : IRpcChannel
 {
     private readonly Channel<Payload> _inbound = Channel.CreateUnbounded<Payload>(
         new UnboundedChannelOptions { SingleReader = true });

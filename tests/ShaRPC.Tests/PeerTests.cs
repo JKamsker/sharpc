@@ -135,8 +135,8 @@ public sealed class PeerTests
     public async Task RpcHost_AcceptsMultiplePeers_CallsEach_AndClosesAllOnStop()
     {
         const int peerCount = 4;
-        var clientSides = new List<IConnection>();
-        var serverSides = new List<IConnection>();
+        var clientSides = new List<IRpcChannel>();
+        var serverSides = new List<IRpcChannel>();
         for (var i = 0; i < peerCount; i++)
         {
             var (client, server) = InMemoryChannel.CreatePair();
@@ -313,8 +313,8 @@ public sealed class PeerTests
         public Task<string> WhoAmIAsync(CancellationToken ct = default) => Task.FromResult(_identity);
     }
 
-    /// <summary>An in-process, full-duplex <see cref="IConnection"/> pair backed by two channels.</summary>
-    private sealed class InMemoryChannel : IConnection
+    /// <summary>An in-process, full-duplex <see cref="IRpcChannel"/> pair backed by two channels.</summary>
+    private sealed class InMemoryChannel : IRpcChannel
     {
         private readonly ChannelReader<byte[]> _inbound;
         private readonly ChannelWriter<byte[]> _outbound;
@@ -328,7 +328,7 @@ public sealed class PeerTests
             _name = name;
         }
 
-        public static (IConnection A, IConnection B) CreatePair()
+        public static (IRpcChannel A, IRpcChannel B) CreatePair()
         {
             var ab = System.Threading.Channels.Channel.CreateUnbounded<byte[]>();
             var ba = System.Threading.Channels.Channel.CreateUnbounded<byte[]>();
@@ -379,18 +379,18 @@ public sealed class PeerTests
     /// </summary>
     private sealed class MultiConnectionServerTransport : IServerTransport
     {
-        private readonly Queue<IConnection> _connections;
+        private readonly Queue<IRpcChannel> _connections;
         private readonly TaskCompletionSource<bool> _stopped =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly object _gate = new();
         private int _disposed;
 
-        public MultiConnectionServerTransport(IEnumerable<IConnection> connections) =>
-            _connections = new Queue<IConnection>(connections);
+        public MultiConnectionServerTransport(IEnumerable<IRpcChannel> connections) =>
+            _connections = new Queue<IRpcChannel>(connections);
 
         public Task StartAsync(CancellationToken ct = default) => Task.CompletedTask;
 
-        public async Task<IConnection> AcceptAsync(CancellationToken ct = default)
+        public async Task<IRpcChannel> AcceptAsync(CancellationToken ct = default)
         {
             if (Volatile.Read(ref _disposed) != 0)
             {

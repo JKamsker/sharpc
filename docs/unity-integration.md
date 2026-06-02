@@ -1262,7 +1262,7 @@ public class SteamTransport : ITransport
     private CSteamID _serverId;
     private SteamConnection _connection;
 
-    public IConnection Connection => _connection;
+    public IRpcChannel Connection => _connection;
     public bool IsConnected => _connection?.IsConnected ?? false;
 
     public async Task ConnectAsync(CancellationToken ct = default)

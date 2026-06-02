@@ -8,7 +8,7 @@ ShaRPC is transport-agnostic. This guide shows how to create a WebSocket transpo
 
 - `ITransport` - Client-side transport
 - `IServerTransport` - Server-side transport
-- `IConnection` - Bidirectional connection abstraction
+- `IRpcChannel` - Bidirectional connection abstraction
 
 ## 1. Create the WebSocket Transport Project
 
@@ -28,7 +28,7 @@ Add the required references to `ShaRPC.Transports.WebSocket.csproj`:
 
 ## 2. Implement WebSocketConnection
 
-The connection class wraps a `WebSocket` and implements `IConnection`:
+The connection class wraps a `WebSocket` and implements `IRpcChannel`:
 
 ```csharp
 // WebSocketConnection.cs
@@ -45,7 +45,7 @@ namespace ShaRPC.Transports.WebSocket;
 /// <summary>
 /// WebSocket-based connection implementation.
 /// </summary>
-public sealed class WebSocketConnection : IConnection
+public sealed class WebSocketConnection : IRpcChannel
 {
     private readonly System.Net.WebSockets.WebSocket _socket;
     private readonly string _remoteEndpoint;
@@ -226,7 +226,7 @@ public sealed class WebSocketTransport : ITransport
         _configureOptions = configureOptions;
     }
 
-    public IConnection? Connection => _connection;
+    public IRpcChannel? Connection => _connection;
 
     public bool IsConnected => _connection?.IsConnected ?? false;
 
@@ -288,7 +288,7 @@ public sealed class WebSocketServerTransport : IServerTransport
 {
     private readonly HttpListener _listener;
     private readonly string _path;
-    private readonly Channel<IConnection> _connectionChannel;
+    private readonly Channel<IRpcChannel> _connectionChannel;
     private CancellationTokenSource? _cts;
     private Task? _acceptTask;
     private bool _disposed;
@@ -313,7 +313,7 @@ public sealed class WebSocketServerTransport : IServerTransport
         _listener = new HttpListener();
         _listener.Prefixes.Add(prefix);
         _path = new Uri(prefix.Replace("+", "localhost").Replace("*", "localhost")).AbsolutePath;
-        _connectionChannel = Channel.CreateUnbounded<IConnection>();
+        _connectionChannel = Channel.CreateUnbounded<IRpcChannel>();
     }
 
     public async Task StartAsync(CancellationToken ct = default)
@@ -375,7 +375,7 @@ public sealed class WebSocketServerTransport : IServerTransport
         }
     }
 
-    public async Task<IConnection> AcceptAsync(CancellationToken ct = default)
+    public async Task<IRpcChannel> AcceptAsync(CancellationToken ct = default)
     {
         if (_disposed)
         {
@@ -508,7 +508,7 @@ app.Map("/rpc", async context =>
 
     var ws = await context.WebSockets.AcceptWebSocketAsync();
 
-    // WebSocketConnection implements IConnection (an IRpcChannel), so it plugs
+    // WebSocketConnection implements IRpcChannel, so it plugs
     // straight into RpcPeer.Over — no builder or manual dispatch loop required.
     await using var connection = new WebSocketConnection(
         ws, context.Connection.RemoteIpAddress?.ToString() ?? "unknown");

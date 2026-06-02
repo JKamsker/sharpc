@@ -31,7 +31,7 @@ public sealed class NamedPipeClientTransport : ITransport
         _maxMessageSize = ValidateMaxMessageSize(maxMessageSize);
     }
 
-    public IConnection? Connection => _connection;
+    public IRpcChannel? Connection => _connection;
 
     public bool IsConnected => _connection?.IsConnected ?? false;
 

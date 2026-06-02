@@ -86,7 +86,7 @@ public sealed class BulletproofReviewRegressionTests
     /// <see cref="DisposeAsync"/> — mirroring a socket read that does not honor cancellation on
     /// netstandard2.1 runtimes (.NET Framework, Unity/Mono).
     /// </summary>
-    private sealed class CancellationIgnoringConnection : IConnection
+    private sealed class CancellationIgnoringConnection : IRpcChannel
     {
         private readonly TaskCompletionSource<Payload> _receive =
             new(TaskCreationOptions.RunContinuationsAsynchronously);

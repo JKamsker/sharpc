@@ -16,7 +16,7 @@ namespace ShaRPC.Tests;
 internal static class InMemoryPipe
 {
     /// <summary>
-    /// Creates two directly connected <see cref="IConnection"/> instances for peer tests.
+    /// Creates two directly connected <see cref="IRpcChannel"/> instances for peer tests.
     /// <paramref name="writeChunkSize"/> &gt; 0 splits every <c>SendAsync</c> into chunks of that
     /// many bytes, each flushed separately, so the receiver must reassemble a fragmented stream;
     /// 0 writes each frame in a single flush.
@@ -48,7 +48,7 @@ internal static class InMemoryPipe
 /// frame (including the 4-byte prefix), reassembling it across however many partial reads the pipe
 /// hands back.
 /// </summary>
-internal sealed class PipeConnection : IConnection
+internal sealed class PipeConnection : IRpcChannel
 {
     private const int MaxMessageSize = 16 * 1024 * 1024;
 

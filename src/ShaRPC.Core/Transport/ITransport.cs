@@ -13,7 +13,7 @@ public interface ITransport : IAsyncDisposable
     /// <summary>
     /// Gets the active connection (client-side).
     /// </summary>
-    IConnection? Connection { get; }
+    IRpcChannel? Connection { get; }
 
     /// <summary>
     /// Gets whether there is an active connection.
@@ -34,7 +34,7 @@ public interface IServerTransport : IAsyncDisposable
     /// <summary>
     /// Accepts an incoming connection.
     /// </summary>
-    Task<IConnection> AcceptAsync(CancellationToken ct = default);
+    Task<IRpcChannel> AcceptAsync(CancellationToken ct = default);
 
     /// <summary>
     /// Stops listening for connections.

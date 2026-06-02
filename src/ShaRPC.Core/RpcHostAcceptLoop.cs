@@ -8,13 +8,13 @@ internal sealed class RpcHostAcceptLoop
     private static readonly TimeSpan AcceptErrorBackoff = TimeSpan.FromMilliseconds(50);
 
     private readonly IServerTransport _listener;
-    private readonly Func<IConnection, Task> _addPeerAsync;
+    private readonly Func<IRpcChannel, Task> _addPeerAsync;
     private readonly Action<Exception> _acceptError;
     private readonly ConcurrentDictionary<Task, byte> _inFlight = new();
 
     public RpcHostAcceptLoop(
         IServerTransport listener,
-        Func<IConnection, Task> addPeerAsync,
+        Func<IRpcChannel, Task> addPeerAsync,
         Action<Exception> acceptError)
     {
         _listener = listener;
@@ -26,7 +26,7 @@ internal sealed class RpcHostAcceptLoop
     {
         while (!ct.IsCancellationRequested)
         {
-            IConnection connection;
+            IRpcChannel connection;
             try
             {
                 connection = await _listener.AcceptAsync(ct).ConfigureAwait(false);
@@ -73,7 +73,7 @@ internal sealed class RpcHostAcceptLoop
         }
     }
 
-    private void TrackHandoff(IConnection connection)
+    private void TrackHandoff(IRpcChannel connection)
     {
         var handoff = Task.Run(async () =>
         {

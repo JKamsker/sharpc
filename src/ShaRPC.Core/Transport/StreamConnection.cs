@@ -9,7 +9,7 @@ namespace ShaRPC.Core.Transport;
 /// <summary>
 /// ShaRPC connection over a duplex stream, including named pipe streams.
 /// </summary>
-public sealed class StreamConnection : IConnection
+public sealed class StreamConnection : IRpcChannel
 {
     private readonly Stream _stream;
     private readonly bool _ownsStream;

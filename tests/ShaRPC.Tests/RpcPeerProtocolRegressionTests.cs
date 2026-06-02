@@ -165,7 +165,7 @@ public sealed class RpcPeerProtocolRegressionTests
             .WaitAsync(TimeSpan.FromSeconds(2));
     }
 
-    private static async Task<int> ReadRequestIdAsync(IConnection connection)
+    private static async Task<int> ReadRequestIdAsync(IRpcChannel connection)
     {
         using var requestFrame = await connection.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(1));
         Assert.True(MessageFramer.TryReadFrameHeader(
@@ -189,7 +189,7 @@ public sealed class RpcPeerProtocolRegressionTests
             },
             ReadOnlySpan<byte>.Empty);
 
-    private static async Task SendMalformedResponseAsync(IConnection connection, int messageId)
+    private static async Task SendMalformedResponseAsync(IRpcChannel connection, int messageId)
     {
         var body = new byte[MessageFramer.EnvelopeLengthSize + 1];
         BinaryPrimitives.WriteInt32LittleEndian(body.AsSpan(0, MessageFramer.EnvelopeLengthSize), 1);
@@ -200,7 +200,7 @@ public sealed class RpcPeerProtocolRegressionTests
     }
 
     private static async Task SendSuccessResponseAsync(
-        IConnection connection,
+        IRpcChannel connection,
         ISerializer serializer,
         int messageId,
         int value)
