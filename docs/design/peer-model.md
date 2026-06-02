@@ -1,6 +1,8 @@
 # ShaRPC Peer Model
 
-Status: implemented on `feature/peer-model`.
+Status: implemented on `feature/peer-model`. The legacy `ShaRpcClient` / `ShaRpcServer` /
+`ShaRpcPeer` and the `DuplexConnectionSplitter` have since been **removed** — `RpcPeer` and
+`RpcHost` are the only surface. The wire format is unchanged, so the removal is API-only.
 
 This document describes the move from a `client` / `server` mental model to a single,
 symmetric **peer** model: two sides connect over a transport, either side can *provide*
@@ -87,10 +89,9 @@ public interface IRpcInvoker
 }
 ```
 
-This is `IShaRpcClient` minus `ConnectAsync`/`IsConnected`/`IAsyncDisposable` — just the
-invoke verbs. `IShaRpcClient` is redefined as `: IRpcInvoker, IAsyncDisposable` so all
-existing client code keeps compiling, and generated proxies now depend on `IRpcInvoker`
-(which `RpcPeer` implements directly — no "client" required).
+This is the transport-agnostic set of invoke verbs — no `Connect`/`IsConnected`/`Dispose`.
+Generated proxies depend on `IRpcInvoker`, which `RpcPeer` implements directly — no "client"
+required.
 
 ### `RpcPeer`
 
@@ -202,21 +203,16 @@ i.e. `IRpcChannel`). "IChannelListener" is the conceptual name for the same role
 
 ## Generated surface (per `[ShaRpcService] IGameService`)
 
-The generator emits the same proxy + dispatcher pair. The proxy's backing field is now
-typed `IRpcInvoker` and named `_invoker` internally. New extension methods
-target `RpcPeer`; the legacy `Create…Proxy` / `Add…` extensions remain for the
-client/server API.
+The generator emits the same proxy + dispatcher pair. The proxy's backing field is typed
+`IRpcInvoker` and named `_invoker` internally. The generated extension methods target
+`RpcPeer` (`Provide…` / `Get…`); the legacy `Create…Proxy` / `Add…` extensions were removed
+along with the client/server types.
 
 ```csharp
 public static class ShaRpcGeneratedExtensions
 {
-    // peer model
     public static RpcPeer ProvideGameService(this RpcPeer peer, IGameService impl);   // → Provide<IGameService>(impl)
     public static IGameService GetGameService(this RpcPeer peer);                      // → Get<IGameService>()
-
-    // legacy (unchanged)
-    public static IGameService CreateGameServiceProxy(this IShaRpcClient client);
-    public static ShaRpcServerBuilder AddGameService(this ShaRpcServerBuilder builder, IGameService impl);
 }
 ```
 
@@ -259,14 +255,14 @@ await notifier.MessageReceivedAsync("welcome");
 
 ## Migration map
 
-| Today | Reimagined | Notes |
+| Was | Now | Notes |
 |---|---|---|
-| `ShaRpcClient` / `IShaRpcClient` | `RpcPeer` (get-only) / `IRpcInvoker` | `IShaRpcClient : IRpcInvoker, IAsyncDisposable` kept |
-| `ShaRpcServer` + accept loop | `RpcHost` + per-conn `RpcPeer` | accept concern leaves the dispatch object |
-| `ShaRpcPeer` + `DuplexConnectionSplitter` | `RpcPeer` (one loop) | both kept for back-compat |
-| `IConnection` | `IRpcChannel` (base interface) | `IConnection : IRpcChannel`; existing impls unchanged |
-| `serverBuilder.AddGameService(impl)` | `peer.ProvideGameService(impl)` | both generated |
-| `client.CreateGameServiceProxy()` | `peer.GetGameService()` | both generated |
+| `ShaRpcClient` / `IShaRpcClient` | `RpcPeer` (get-only) / `IRpcInvoker` | legacy client **removed** |
+| `ShaRpcServer` + accept loop | `RpcHost` + per-conn `RpcPeer` | legacy server **removed**; accept concern is `RpcHost` |
+| `ShaRpcPeer` + `DuplexConnectionSplitter` | `RpcPeer` (one loop) | both **removed** |
+| `IConnection` | `IRpcChannel` (base interface) | `IConnection : IRpcChannel` retained as a legacy alias; existing impls unchanged |
+| `serverBuilder.AddGameService(impl)` | `peer.ProvideGameService(impl)` | generated `Add…` extension **removed** |
+| `client.CreateGameServiceProxy()` | `peer.GetGameService()` | generated `Create…Proxy` extension **removed** |
 | `RpcRequest` / `RpcResponse` / `ServiceHandle` / `InstanceRegistry` | **unchanged** | wire compatibility preserved |
 
 The wire format never changes, so old and new peers interoperate throughout.

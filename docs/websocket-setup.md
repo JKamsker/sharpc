@@ -424,37 +424,45 @@ public sealed class WebSocketServerTransport : IServerTransport
 ### Server Setup
 
 ```csharp
-using ShaRPC.Core.Server;
+using ShaRPC.Core;
 using ShaRPC.Generated;
 using ShaRPC.Serializers.MessagePack;
 using ShaRPC.Transports.WebSocket;
 
-var server = new ShaRpcServerBuilder()
-    .UseTransport(new WebSocketServerTransport(5050, "/rpc"))
-    .UseSerializer(new MessagePackRpcSerializer())
-    .AddMyService(new MyService())
-    .Build();
+// A host turns every accepted WebSocket connection into a full peer.
+await using var host = RpcHost
+    .Listen(new WebSocketServerTransport(5050, "/rpc"), new MessagePackRpcSerializer())
+    .ForEachPeer(peer => peer.ProvideMyService(new MyService()));
 
-await server.StartAsync();
+await host.StartAsync();
 Console.WriteLine("WebSocket server running on ws://localhost:5050/rpc");
+
+// Optional lifecycle hooks:
+// host.PeerConnected    += (_, args) => { /* args.Peer is the new RpcPeer */ };
+// host.PeerDisconnected += (_, args) => { /* peer closed */ };
+// host.AcceptError      += (_, args) => { /* transport-level accept failure */ };
+
+// Shutdown: await host.StopAsync();  (DisposeAsync also stops the host)
 ```
 
 ### Client Setup
 
 ```csharp
-using ShaRPC.Core.Client;
+using ShaRPC.Core;
 using ShaRPC.Generated;
 using ShaRPC.Serializers.MessagePack;
 using ShaRPC.Transports.WebSocket;
 
-var client = new ShaRpcClientBuilder()
-    .UseTransport(new WebSocketTransport("ws://localhost:5050/rpc"))
-    .UseSerializer(new MessagePackRpcSerializer())
-    .Build();
+var transport = new WebSocketTransport("ws://localhost:5050/rpc");
+await transport.ConnectAsync();
 
-await client.ConnectAsync();
+// RejectInboundCalls signals a get-only intent: this peer calls out but refuses callbacks.
+await using var peer = RpcPeer
+    .Over(transport.Connection!, new MessagePackRpcSerializer(),
+          new RpcPeerOptions { RejectInboundCalls = true })
+    .Start();
 
-var service = client.CreateMyServiceProxy();
+var service = peer.GetMyService();
 var response = await service.GreetAsync(new GreetingRequest { Name = "World" });
 Console.WriteLine(response.Message);
 ```
@@ -477,7 +485,8 @@ For production servers, use ASP.NET Core's built-in WebSocket support:
 
 ```csharp
 // Program.cs
-using ShaRPC.Core.Server;
+using ShaRPC.Core;
+using ShaRPC.Generated;
 using ShaRPC.Serializers.MessagePack;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -485,10 +494,9 @@ var app = builder.Build();
 
 app.UseWebSockets();
 
-// Create ShaRPC server without transport (we'll handle connections manually)
+// We accept WebSocket upgrades ourselves, then wrap each connection in an RpcPeer.
 var serializer = new MessagePackRpcSerializer();
 var gameService = new GameService();
-var dispatcher = new GameServiceDispatcher(gameService, serializer);
 
 app.Map("/rpc", async context =>
 {
@@ -499,10 +507,21 @@ app.Map("/rpc", async context =>
     }
 
     var ws = await context.WebSockets.AcceptWebSocketAsync();
-    var connection = new WebSocketConnection(ws, context.Connection.RemoteIpAddress?.ToString() ?? "unknown");
 
-    // Handle connection with ShaRPC server logic
-    await HandleRpcConnection(connection, dispatcher, serializer);
+    // WebSocketConnection implements IConnection (an IRpcChannel), so it plugs
+    // straight into RpcPeer.Over — no builder or manual dispatch loop required.
+    await using var connection = new WebSocketConnection(
+        ws, context.Connection.RemoteIpAddress?.ToString() ?? "unknown");
+    await using var peer = RpcPeer
+        .Over(connection, serializer)
+        .ProvideGameService(gameService)
+        .Start();
+
+    // Keep the request alive while the peer pumps the connection. The Disconnected
+    // event fires when the read loop ends after a remote close or read error.
+    var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    peer.Disconnected += (_, _) => closed.TrySetResult();
+    await closed.Task.WaitAsync(context.RequestAborted);
 });
 
 app.Run();
@@ -518,22 +537,33 @@ public class NetworkManager : MonoBehaviour
 {
     [SerializeField] private string serverUrl = "wss://game.example.com/rpc";
 
-    private IShaRpcClient _client;
+    private WebSocketTransport _transport;
+    private RpcPeer _peer;
     private IGameService _gameService;
 
     public async Task ConnectAsync()
     {
-        var transport = new WebSocketTransport(serverUrl);
+        _transport = new WebSocketTransport(serverUrl);
         var serializer = MessagePackRpcSerializer.CreateUnityCompatible();
 
-        _client = new ShaRpcClientBuilder()
-            .UseTransport(transport)
-            .UseSerializer(serializer)
-            .WithTimeout(TimeSpan.FromSeconds(30))
-            .Build();
+        await _transport.ConnectAsync();
 
-        await _client.ConnectAsync();
-        _gameService = _client.CreateGameServiceProxy();
+        _peer = RpcPeer
+            .Over(_transport.Connection!, serializer,
+                  new RpcPeerOptions
+                  {
+                      RequestTimeout = TimeSpan.FromSeconds(30),
+                      RejectInboundCalls = true, // get-only client
+                  })
+            .Start();
+
+        _gameService = _peer.GetGameService();
+    }
+
+    public async Task DisconnectAsync()
+    {
+        if (_peer != null) await _peer.DisposeAsync();
+        if (_transport != null) await _transport.DisposeAsync();
     }
 }
 ```

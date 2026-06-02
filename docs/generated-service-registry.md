@@ -22,7 +22,7 @@ the generator emits:
 
 - `ChatServiceProxy` in the service namespace
 - `ChatServiceDispatcher` in the service namespace
-- extension methods such as `CreateChatServiceProxy()` and `AddChatService(...)`
+- peer extension methods such as `ProvideChatService(...)` and `GetChatService()`
 - `ShaRPC.Generated.ShaRpcGenerated`, a public factory and registration type
 - `ShaRpcGenerated.Services`, an array-backed catalog of generated service descriptors
 - `ShaRpcGenerated.RegisterServices(...)`, a generic registration callback for generated proxy implementations
@@ -45,20 +45,22 @@ Use `ShaRPC.Generated.ShaRpcGenerated` when you want a generic API that does not
 on the generated proxy or dispatcher type names:
 
 ```csharp
-using ShaRPC.Core.Client;
+using ShaRPC.Core;
 using ShaRPC.Core.Server;
 using ShaRPC.Generated;
 
-IShaRpcClient client = /* connected client */;
-IChatService proxy = ShaRpcGenerated.CreateProxy<IChatService>(client);
+RpcPeer peer = /* connected peer */;
+IChatService proxy = ShaRpcGenerated.CreateProxy<IChatService>(peer);
 
 var implementation = new ChatService();
 IServiceDispatcher dispatcher =
     ShaRpcGenerated.CreateDispatcher<IChatService>(implementation);
+peer.Provide(dispatcher);
 ```
 
-This is the preferred shape for frameworks, plugin hosts, and sidecars that expose
-`Provide<TService>(...)` or `Remote<TService>()` style APIs.
+`CreateProxy<TService>` takes an `IRpcInvoker`; an `RpcPeer` implements it, so you pass
+the peer directly. This is the preferred shape for frameworks, plugin hosts, and sidecars
+that expose `Provide<TService>(...)` or `Remote<TService>()` style APIs.
 
 ## Generated Service Catalog
 
@@ -159,17 +161,18 @@ the project acronym casing.
 When the service type is known only at runtime, use the non-generic overloads:
 
 ```csharp
-using ShaRPC.Core.Client;
+using ShaRPC.Core;
 using ShaRPC.Core.Server;
 using ShaRPC.Generated;
 
 Type serviceType = typeof(IChatService);
-IShaRpcClient client = /* connected client */;
-object proxy = ShaRpcGenerated.CreateProxy(serviceType, client);
+RpcPeer peer = /* connected peer */;
+object proxy = ShaRpcGenerated.CreateProxy(serviceType, peer);
 
 object implementation = new ChatService();
 IServiceDispatcher dispatcher =
     ShaRpcGenerated.CreateDispatcher(serviceType, implementation);
+peer.Provide(dispatcher);
 ```
 
 The implementation passed to `CreateDispatcher(Type, object)` must implement the
@@ -213,9 +216,12 @@ The lower-level runtime registry is public for advanced hosts:
 using ShaRPC.Core.Generated;
 
 var service = ShaRpcServiceRegistry.GetService<IChatService>();
-var proxy = ShaRpcServiceRegistry.CreateProxy<IChatService>(client);
+var proxy = ShaRpcServiceRegistry.CreateProxy<IChatService>(peer);
 var dispatcher = ShaRpcServiceRegistry.CreateDispatcher<IChatService>(implementation);
 ```
+
+Like the typed factory, `CreateProxy<IChatService>` takes an `IRpcInvoker`, so pass the
+connected `RpcPeer`.
 
 Normally you should call `ShaRPC.Generated.ShaRpcGenerated` from the service assembly.
 The runtime registry is useful when infrastructure code should not reference the
@@ -238,20 +244,25 @@ names the service interface and assembly and tells the caller to mark the interf
 
 ## Bidirectional Peer Example
 
-The generated registry is what allows `ShaRpcPeer` to expose a compact typed API:
+The generated registry is what allows `RpcPeer` to expose a compact typed API. Each side
+is an `RpcPeer` over one duplex `IRpcChannel`; each side may `Provide` an implementation
+and `Get` a proxy to call the other side:
 
 ```csharp
-using ShaRPC.Core.Peer;
+using ShaRPC.Core;
 using ShaRPC.Generated;
 
-var peer = await ShaRpcPeer.StartAsync(
-    connection,
-    serializer,
-    builder => builder.AddDispatcher(
-        ShaRpcGenerated.CreateDispatcher<IChatService>(new ChatService())),
-    cancellationToken);
+await using var peer = RpcPeer
+    .Over(channel, serializer)
+    .ProvideChatService(new ChatService())
+    .Start();
 
-IClientCallbacks callbacks = peer.CreateProxy<IClientCallbacks>();
+IClientCallbacks callbacks = peer.GetClientCallbacks();
 ```
 
-Both sides can use the same pattern over one duplex connection.
+The generated `ProvideChatService` / `GetClientCallbacks` extension methods build on the
+factory and registry above: `ProvideChatService(impl)` calls `peer.Provide(...)` with the
+generated dispatcher, and `GetClientCallbacks()` returns the generated proxy over the peer.
+If you only have `Type` values at runtime, call
+`ShaRpcGenerated.CreateProxy(serviceType, peer)` and `peer.Provide(ShaRpcGenerated.CreateDispatcher(serviceType, impl))`
+instead. Both sides can use the same pattern over one duplex connection.

@@ -20,7 +20,7 @@ namespace ShaRPC.SourceGenerator.Tests;
 /// <summary>
 /// Compiles and emits an assembly using the generated proxy/dispatcher and then
 /// exercises them via reflection. Proves the generated code is wire-compatible
-/// with the IShaRpcClient / IServiceDispatcher contracts.
+/// with the IRpcInvoker / IServiceDispatcher contracts.
 /// </summary>
 public class BehavioralTests
 {
@@ -42,7 +42,7 @@ public class BehavioralTests
         """;
 
     [Fact]
-    public async Task GeneratedProxy_ForwardsInvocationToShaRpcClient_WithExpectedServiceAndMethodNames()
+    public async Task GeneratedProxy_ForwardsInvocationToInvoker_WithExpectedServiceAndMethodNames()
     {
         var (assembly, _) = CompileWithGenerator(ServiceSource);
 
@@ -208,21 +208,21 @@ public class BehavioralTests
     }
 
     [Fact]
-    public void GeneratedExtensions_ExposeCreateProxyAndAddExtensionMethods()
+    public void GeneratedExtensions_ExposeProvideAndGetPeerExtensionMethods()
     {
         var (assembly, _) = CompileWithGenerator(ServiceSource);
 
         var extType = assembly.GetType("ShaRPC.Generated.ShaRpcGeneratedExtensions");
         extType.Should().NotBeNull();
 
-        var createMethod = extType!.GetMethod("CreateMathProxy", BindingFlags.Public | BindingFlags.Static);
-        createMethod.Should().NotBeNull();
-        createMethod!.GetParameters().Should().ContainSingle().Which.ParameterType.Should().Be(typeof(IShaRpcClient));
+        var getMethod = extType!.GetMethod("GetMath", BindingFlags.Public | BindingFlags.Static);
+        getMethod.Should().NotBeNull();
+        getMethod!.GetParameters().Should().ContainSingle().Which.ParameterType.Should().Be(typeof(global::ShaRPC.Core.RpcPeer));
 
-        var addMethod = extType.GetMethod("AddMath", BindingFlags.Public | BindingFlags.Static);
-        addMethod.Should().NotBeNull();
-        addMethod!.GetParameters().Should().HaveCount(2);
-        addMethod.GetParameters()[0].ParameterType.Should().Be(typeof(ShaRpcServerBuilder));
+        var provideMethod = extType.GetMethod("ProvideMath", BindingFlags.Public | BindingFlags.Static);
+        provideMethod.Should().NotBeNull();
+        provideMethod!.GetParameters().Should().HaveCount(2);
+        provideMethod.GetParameters()[0].ParameterType.Should().Be(typeof(global::ShaRPC.Core.RpcPeer));
     }
 
     // ---------- compilation infrastructure ----------
@@ -259,7 +259,7 @@ public class BehavioralTests
 
     // ---------- test doubles ----------
 
-    private sealed class RecordingClient : IShaRpcClient
+    private sealed class RecordingClient : global::ShaRPC.Core.IRpcInvoker
     {
         public string? LastService { get; private set; }
         public string? LastMethod { get; private set; }

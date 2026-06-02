@@ -11,18 +11,6 @@ namespace ShaRPC.Generated
     {
 
         /// <summary>
-        /// Creates a proxy for IRefOutSnap.
-        /// </summary>
-        public static global::Snap.RefOut.IRefOutSnap CreateRefOutSnapProxy(this global::ShaRPC.Core.Client.IShaRpcClient client)
-            => new global::Snap.RefOut.RefOutSnapProxy(client);
-
-        /// <summary>
-        /// Registers IRefOutSnap with the server.
-        /// </summary>
-        public static global::ShaRPC.Core.Server.ShaRpcServerBuilder AddRefOutSnap(this global::ShaRPC.Core.Server.ShaRpcServerBuilder builder, global::Snap.RefOut.IRefOutSnap implementation)
-            => builder.AddDispatcher(new global::Snap.RefOut.RefOutSnapDispatcher(implementation));
-
-        /// <summary>
         /// Provides a IRefOutSnap implementation for the other peer to call.
         /// </summary>
         public static global::ShaRPC.Core.RpcPeer ProvideRefOutSnap(this global::ShaRPC.Core.RpcPeer peer, global::Snap.RefOut.IRefOutSnap implementation)

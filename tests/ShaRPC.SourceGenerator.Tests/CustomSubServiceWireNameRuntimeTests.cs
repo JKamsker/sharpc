@@ -129,7 +129,7 @@ public class CustomSubServiceWireNameRuntimeTests
         return task.GetType().GetProperty("Result")!.GetValue(task)!;
     }
 
-    private sealed class RecordingClient : IShaRpcClient
+    private sealed class RecordingClient : global::ShaRPC.Core.IRpcInvoker
     {
         public ServiceHandle HandleResult { get; set; } = new();
         public int CountResult { get; set; }

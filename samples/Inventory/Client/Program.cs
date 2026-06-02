@@ -1,4 +1,5 @@
 using Inventory.Shared;
+using ShaRPC.Core;
 using ShaRPC.Generated;
 using ShaRPC.Serializers.MessagePack;
 using ShaRPC.Transports.Tcp;
@@ -12,16 +13,14 @@ Console.WriteLine();
 
 var transport = new TcpTransport(Host, Port);
 var serializer = new MessagePackRpcSerializer();
-var client = new ShaRPC.Core.Client.ShaRpcClientBuilder()
-    .UseTransport(transport)
-    .UseSerializer(serializer)
-    .WithTimeout(TimeSpan.FromSeconds(10))
-    .Build();
 
 try
 {
     Console.WriteLine($"Connecting to {Host}:{Port}...");
-    await client.ConnectAsync();
+    await transport.ConnectAsync();
+    await using var peer = RpcPeer
+        .Over(transport.Connection!, serializer, new RpcPeerOptions { RequestTimeout = TimeSpan.FromSeconds(10) })
+        .Start();
     Console.WriteLine("Connected!");
     Console.WriteLine();
 
@@ -29,7 +28,7 @@ try
     //   - IInventoryService       (the user's contract, sync methods stay sync)
     //   - IInventoryServiceAsync  (auto-generated sibling; everything returns Task[<T>])
     //   - InventoryServiceProxy   (implements BOTH so callers pick the view they want)
-    var inventoryProxy = client.CreateInventoryServiceProxy();
+    var inventoryProxy = peer.GetInventoryService();
 
     // -------------- 1. Sync call via the original interface (blocks) --------------
     Console.WriteLine("[sync]  blocking call on IInventoryService.GetPlayer(\"alice\"):");
@@ -108,6 +107,6 @@ catch (Exception ex)
 }
 finally
 {
-    await client.DisposeAsync();
+    await transport.DisposeAsync();
     Console.WriteLine("\nClient disconnected.");
 }

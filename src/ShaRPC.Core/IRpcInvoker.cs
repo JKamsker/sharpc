@@ -2,8 +2,7 @@ namespace ShaRPC.Core;
 
 /// <summary>
 /// The call surface a generated proxy uses to invoke methods the other side provides.
-/// Implemented by <see cref="ShaRPC.Core.RpcPeer"/> and (transitively) by
-/// <see cref="ShaRPC.Core.Client.IShaRpcClient"/>. This is the transport-agnostic invoke
+/// Implemented by <see cref="ShaRPC.Core.RpcPeer"/>. This is the transport-agnostic invoke
 /// contract with no notion of "client" or "connect" — a peer simply forwards calls.
 /// </summary>
 public interface IRpcInvoker

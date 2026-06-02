@@ -1,5 +1,11 @@
 # Nested Services in ShaRPC — Design
 
+> **Historical design note.** This document predates the peer-model refactor. The
+> `IShaRpcClient` / `ShaRpcServer` / `ShaRpcClientBuilder` types named below were superseded by
+> the symmetric `RpcPeer` / `RpcHost` surface: the invoke contract is now `IRpcInvoker`
+> (implemented by `RpcPeer`), inbound dispatch lives in `RpcPeerInboundDispatcher`, and generated
+> proxies take an `IRpcInvoker`. The reasoning here still holds; only the type names changed.
+
 ## 1. Wire protocol additions
 
 **Decision: Option B — add a new `InvokeOnInstanceAsync` overload AND a new `ServiceHandle` payload type.** Option A (name-mangling `IFoo@<guid>`) is rejected: it overloads `RpcRequest.ServiceName`, breaks the dispatcher registry lookup invariant (`TryGetValue(serviceName, ...)`), and forces every layer that logs / inspects service names to learn the mangling rule. Option B keeps the existing `RpcRequest` envelope alphabet-clean and isolates the new concern to a single field.
@@ -30,7 +36,7 @@ public sealed record ServiceHandle(string ServiceName, string InstanceId);
 
 When a dispatcher method's *return value* is itself a `[ShaRpcService]`, the generated dispatcher serializes a `ServiceHandle` instead of attempting to serialize the live object. When the client proxy sees a method whose declared return is a `[ShaRpcService]` interface, it deserializes the response payload as `ServiceHandle` and constructs a `SubServiceProxy(client, ServiceName, InstanceId)`.
 
-**New client overload** on `IShaRpcClient`:
+**New invoke overload** on `IRpcInvoker` (the call surface implemented by `RpcPeer`):
 
 ```csharp
 Task<TResponse> InvokeOnInstanceAsync<TRequest, TResponse>(
@@ -41,11 +47,11 @@ Task InvokeOnInstanceAsync<TRequest>(
     string service, string instanceId, string method, TRequest request, CancellationToken ct = default);
 ```
 
-Implementation forwards to the same `SendRequestAsync` but sets `RpcRequest.InstanceId`.
+`RpcPeer`'s implementation forwards to the same outbound request path as `InvokeAsync` but sets `RpcRequest.InstanceId`.
 
 ## 2. Server-side instance registry
 
-**Decision: per-connection, session-scoped, with explicit `Release` wire op.** Server-wide instance lookup would leak instances across tenants and require global GUID uniqueness; per-connection scoping matches the natural lifetime of a `SubService` (which conceptually represents "this client's view of subscope X") and lets the existing `HandleConnectionAsync` cleanup drain everything on disconnect.
+**Decision: per-connection, session-scoped, with explicit `Release` wire op.** Server-wide instance lookup would leak instances across tenants and require global GUID uniqueness; per-connection scoping matches the natural lifetime of a `SubService` (which conceptually represents "this client's view of subscope X") and lets the per-peer teardown (`RpcPeerInboundDispatcher.StopAsync`) drain everything on disconnect.
 
 New abstraction in `ShaRPC.Core.Server`:
 
@@ -63,7 +69,7 @@ public interface IInstanceRegistry
 
 **Lifetime.** Default behavior: instances live until the connection closes. A future "explicit release" message type (`MessageType.ReleaseInstance = 0x05`) can be sent by the client when its `SubServiceProxy` is disposed; if not sent (proxy was GC'd without dispose), the instance lingers until disconnect. Reference counting is rejected as out-of-scope — it requires coordinating proxy finalizers across the wire and inviting double-release races.
 
-**Where it lives.** One `IInstanceRegistry` per `IConnection`. The connection handler in `ShaRpcServer.HandleConnectionAsync` constructs a registry, threads it into request processing, and calls `ReleaseAll()` in the `finally`.
+**Where it lives.** One `IInstanceRegistry` per peer (i.e. per duplex `IRpcChannel`). `RpcPeerInboundDispatcher` owns an `InstanceRegistry`, threads it into request processing, and calls `ReleaseAll()` during `StopAsync` when the peer tears down.
 
 ## 3. Dispatcher routing
 
@@ -84,7 +90,7 @@ public interface IServiceDispatcher
 }
 ```
 
-In `ShaRpcServer.ProcessMessageAsync`, after looking up the dispatcher:
+In the per-peer inbound dispatch path (`RpcPeerInboundDispatcher` / its response builder), after looking up the dispatcher:
 
 - If `request.InstanceId == null`: existing path, calls `DispatchAsync` (no behavioral change).
 - If `request.InstanceId != null`: calls `dispatcher.DispatchOnInstanceAsync(request.InstanceId, ...)`, passing the per-connection `IInstanceRegistry`.
@@ -112,19 +118,19 @@ internal enum MethodReturnKind { Void, Sync, Task, TaskOf, ValueTask, ValueTaskO
 
 This stays incremental — it operates only on `IMethodSymbol.ReturnType` and an attribute name string, never on the full `Compilation`. `MethodModel` gets one additional value-equatable field carrying the sub-service interface's qualified name and its RPC service name (extracted from the same `[ShaRpcService(Name=...)]` attribute), both as strings, preserving record equality.
 
-**Proxy for a sub-service-returning method.** Instead of `_client.InvokeAsync<ISubService>(...)` (which would fail to deserialize), emit:
+**Proxy for a sub-service-returning method.** Instead of `_invoker.InvokeAsync<ISubService>(...)` (which would fail to deserialize), emit:
 
 ```csharp
-var handle = await _client.InvokeAsync<global::ShaRPC.Core.Protocol.ServiceHandle>(
+var handle = await _invoker.InvokeAsync<global::ShaRPC.Core.Protocol.ServiceHandle>(
     "IRootService", "GetSubServiceAsync", id, ct);
-return new global::App.SubServiceProxy(_client, handle.InstanceId);
+return new global::App.SubServiceProxy(_invoker, handle.InstanceId);
 ```
 
 **Generated `SubServiceProxy` shape.** Same as today's top-level proxy with two differences:
-- Constructor signature is `(IShaRpcClient client, string instanceId)`; stores both.
+- Constructor signature is `(IRpcInvoker invoker, string instanceId)`; stores both.
 - Every `InvokeAsync(...)` call site is rewritten to `InvokeOnInstanceAsync("ISubService", _instanceId, "MethodName", ...)`.
 
-A `[ShaRpcService]` interface is *always* emitted as a top-level proxy (callable from the root) PLUS the same class doubles as a SubServiceProxy via a second public constructor `(IShaRpcClient, string instanceId)`. The proxy carries a `_instanceId` field (nullable). When null, it emits singleton calls; when non-null, instance calls. This avoids generating two near-duplicate classes per interface.
+A `[ShaRpcService]` interface is *always* emitted as a top-level proxy (callable from the root) PLUS the same class doubles as a SubServiceProxy via a second public constructor `(IRpcInvoker, string instanceId)`. The proxy carries a `_instanceId` field (nullable). When null, it emits singleton calls; when non-null, instance calls. This avoids generating two near-duplicate classes per interface.
 
 **Out of scope (flag with SHARPC004 / SHARPC005 diagnostics, do not emit):**
 - `Task<ICollection<ISubService>>`, arrays, dictionaries containing sub-services.
@@ -145,9 +151,9 @@ Generated `RootServiceProxy.GetSubServiceAsync`:
 ```csharp
 public async global::System.Threading.Tasks.Task<global::App.ISubService> GetSubServiceAsync(string id, global::System.Threading.CancellationToken ct = default)
 {
-    var handle = await _client.InvokeAsync<string, global::ShaRPC.Core.Protocol.ServiceHandle>(
+    var handle = await _invoker.InvokeAsync<string, global::ShaRPC.Core.Protocol.ServiceHandle>(
         "IRootService", "GetSubServiceAsync", id, ct);
-    return new global::App.SubServiceProxy(_client, handle.InstanceId);
+    return new global::App.SubServiceProxy(_invoker, handle.InstanceId);
 }
 ```
 
@@ -157,8 +163,8 @@ Generated `SubServiceProxy.CountAsync`:
 public async global::System.Threading.Tasks.Task<int> CountAsync(global::System.Threading.CancellationToken ct = default)
 {
     if (_instanceId is null)
-        return await _client.InvokeAsync<int>("ISubService", "CountAsync", ct);
-    return await _client.InvokeOnInstanceAsync<int>("ISubService", _instanceId, "CountAsync", ct);
+        return await _invoker.InvokeAsync<int>("ISubService", "CountAsync", ct);
+    return await _invoker.InvokeOnInstanceAsync<int>("ISubService", _instanceId, "CountAsync", ct);
 }
 ```
 
@@ -217,13 +223,13 @@ The one subtlety: detecting `[ShaRpcService]` on a return type symbol requires w
 2. Add nullable `InstanceId` property to `RpcRequest`.
 3. Add new `IInstanceRegistry` interface and a default `InstanceRegistry` (per-connection, `ConcurrentDictionary<(string,string),object>`) under `src/ShaRPC.Core/Server/`.
 4. Extend `IServiceDispatcher.DispatchAsync` signature with `IInstanceRegistry registry` parameter and add default `DispatchOnInstanceAsync` that throws.
-5. Update `ShaRpcServer.HandleConnectionAsync` to construct one `IInstanceRegistry` per connection and call `ReleaseAll()` in `finally`.
-6. Update `ShaRpcServer.ProcessMessageAsync` to branch on `request.InstanceId` and call the right dispatcher entrypoint.
-7. Add `InvokeOnInstanceAsync` overloads to `IShaRpcClient` and implement in `ShaRpcClient` (forward to `SendRequestAsync` with `InstanceId` set).
+5. Have `RpcPeerInboundDispatcher` own one `IInstanceRegistry` per peer and call `ReleaseAll()` during `StopAsync` on teardown.
+6. Update the per-peer inbound dispatch path to branch on `request.InstanceId` and call the right dispatcher entrypoint.
+7. Add `InvokeOnInstanceAsync` overloads to `IRpcInvoker` and implement in `RpcPeer` (forward to the outbound request path with `InstanceId` set).
 8. Add new `MethodReturnKind` variants `TaskOfSubService` / `ValueTaskOfSubService` and a `SubServiceInfo(string InterfaceQualifiedName, string ServiceName)` value-equatable record.
 9. Extend `MethodModel` with an optional `SubServiceInfo? SubService` field.
 10. Update `ShaRpcGenerator.ClassifyReturnType` to detect `[ShaRpcService]` on the unwrapped return symbol and emit the new return kinds plus `SubServiceInfo`.
-11. Update `ProxyGenerator` to add the second constructor `(IShaRpcClient, string instanceId)`, `_instanceId` field, and per-call branching between `InvokeAsync` and `InvokeOnInstanceAsync`.
+11. Update `ProxyGenerator` to add the second constructor `(IRpcInvoker, string instanceId)`, `_instanceId` field, and per-call branching between `InvokeAsync` and `InvokeOnInstanceAsync`.
 12. Update `ProxyGenerator` to emit `ServiceHandle`-aware code for sub-service-returning methods (deserialize handle, construct sub-proxy).
 13. Update `DispatcherGenerator` to emit `registry.Register(...)` + `ServiceHandle` serialization for sub-service-returning method cases.
 14. Update `DispatcherGenerator` to emit a `DispatchOnInstanceAsync` override that pulls the instance from the registry and runs the same switch.

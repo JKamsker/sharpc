@@ -2,10 +2,8 @@ using System.Buffers;
 using System.Threading;
 using ShaRPC.Core;
 using ShaRPC.Core.Buffers;
-using ShaRPC.Core.Client;
 using ShaRPC.Core.Exceptions;
 using ShaRPC.Core.Serialization;
-using ShaRPC.Core.Server;
 using ShaRPC.Core.Transport;
 using ShaRPC.Serializers.MessagePack;
 using Xunit;
@@ -13,9 +11,8 @@ using Xunit;
 namespace ShaRPC.Tests;
 
 /// <summary>
-/// Regression tests for the review findings fixed on this branch: the outbound pending-slot leak
-/// (H1), the legacy server start/dispose race (H3), the client connect/dispose race (L12), and
-/// <see cref="RpcPeerOptions.RequestTimeout"/> validation (M6).
+/// Regression tests for review findings on the peer model: the outbound pending-slot leak (H1)
+/// and <see cref="RpcPeerOptions.RequestTimeout"/> validation (M6).
 /// </summary>
 public sealed class ReviewFixRegressionTests
 {
@@ -54,44 +51,6 @@ public sealed class ReviewFixRegressionTests
         // the black-hole connection never answers — proving the slots were reclaimed.
         await Assert.ThrowsAsync<ShaRpcTimeoutException>(
             () => peer.InvokeAsync<int>("Service", "Method").WaitAsync(TimeSpan.FromSeconds(2)));
-    }
-
-    // H3: disposing the legacy server while StartAsync is still awaiting the transport must not
-    // NRE on a nulled _cts nor launch an accept loop on an already-stopped transport.
-    [Fact]
-    public async Task ShaRpcServer_DisposeDuringStart_DoesNotStartAcceptLoopAfterDispose()
-    {
-        var transport = new DelayedStartServerTransport();
-        var server = new ShaRpcServer(transport, NewSerializer());
-
-        var startTask = server.StartAsync();
-        await transport.StartEntered.WaitAsync(TimeSpan.FromSeconds(1));
-
-        await server.DisposeAsync();
-        transport.AllowStart();
-
-        await Assert.ThrowsAsync<ObjectDisposedException>(
-            () => startTask.WaitAsync(TimeSpan.FromSeconds(1)));
-        Assert.Equal(0, transport.AcceptCalls);
-        Assert.True(transport.StopCalls > 0);
-    }
-
-    // L12: disposing the client while ConnectAsync is still awaiting the transport must tear down
-    // the receive loop it started rather than leaving it (and a CTS) running on a disposed transport.
-    [Fact]
-    public async Task ShaRpcClient_DisposeDuringConnect_FailsConnectAndStartsNoLingeringLoop()
-    {
-        var transport = new DelayedConnectTransport();
-        var client = new ShaRpcClient(transport, NewSerializer());
-
-        var connectTask = client.ConnectAsync();
-        await transport.ConnectEntered.WaitAsync(TimeSpan.FromSeconds(1));
-
-        await client.DisposeAsync();
-        transport.AllowConnect();
-
-        await Assert.ThrowsAsync<ObjectDisposedException>(
-            () => connectTask.WaitAsync(TimeSpan.FromSeconds(1)));
     }
 
     // M6: RequestTimeout is validated at construction like the other tunables.
@@ -163,97 +122,6 @@ public sealed class ReviewFixRegressionTests
             Interlocked.Exchange(ref _disposed, 1);
             _disposedSignal.TrySetResult(true);
             return default;
-        }
-    }
-
-    private sealed class DelayedStartServerTransport : IServerTransport
-    {
-        private readonly TaskCompletionSource<bool> _startEntered =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private readonly TaskCompletionSource<bool> _allowStart =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private int _acceptCalls;
-        private int _stopCalls;
-
-        public Task StartEntered => _startEntered.Task;
-
-        public int AcceptCalls => Volatile.Read(ref _acceptCalls);
-
-        public int StopCalls => Volatile.Read(ref _stopCalls);
-
-        public async Task StartAsync(CancellationToken ct = default)
-        {
-            _startEntered.TrySetResult(true);
-            await _allowStart.Task.WaitAsync(ct).ConfigureAwait(false);
-        }
-
-        public Task<IConnection> AcceptAsync(CancellationToken ct = default)
-        {
-            Interlocked.Increment(ref _acceptCalls);
-            throw new InvalidOperationException("The accept loop should not start.");
-        }
-
-        public Task StopAsync(CancellationToken ct = default)
-        {
-            Interlocked.Increment(ref _stopCalls);
-            return Task.CompletedTask;
-        }
-
-        public ValueTask DisposeAsync() => default;
-
-        public void AllowStart() => _allowStart.TrySetResult(true);
-    }
-
-    private sealed class DelayedConnectTransport : ITransport
-    {
-        private readonly TaskCompletionSource<bool> _connectEntered =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private readonly TaskCompletionSource<bool> _allowConnect =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private readonly IdleConnection _connection = new();
-        private int _connected;
-        private int _disposed;
-
-        public Task ConnectEntered => _connectEntered.Task;
-
-        public IConnection? Connection => Volatile.Read(ref _connected) != 0 ? _connection : null;
-
-        public bool IsConnected => Volatile.Read(ref _connected) != 0 && Volatile.Read(ref _disposed) == 0;
-
-        public async Task ConnectAsync(CancellationToken ct = default)
-        {
-            _connectEntered.TrySetResult(true);
-            await _allowConnect.Task.WaitAsync(ct).ConfigureAwait(false);
-            Interlocked.Exchange(ref _connected, 1);
-        }
-
-        public async ValueTask DisposeAsync()
-        {
-            Interlocked.Exchange(ref _disposed, 1);
-            await _connection.DisposeAsync().ConfigureAwait(false);
-        }
-
-        public void AllowConnect() => _allowConnect.TrySetResult(true);
-
-        private sealed class IdleConnection : IConnection
-        {
-            private int _disposed;
-
-            public bool IsConnected => Volatile.Read(ref _disposed) == 0;
-
-            public string RemoteEndpoint => "test://idle";
-
-            public Task SendAsync(ReadOnlyMemory<byte> data, CancellationToken ct = default) => Task.CompletedTask;
-
-            // The receive loop only starts after a concurrent dispose, so return the closed signal
-            // immediately to let it exit promptly during teardown.
-            public Task<Payload> ReceiveAsync(CancellationToken ct = default) => Task.FromResult(Payload.Empty);
-
-            public ValueTask DisposeAsync()
-            {
-                Interlocked.Exchange(ref _disposed, 1);
-                return default;
-            }
         }
     }
 }

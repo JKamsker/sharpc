@@ -279,7 +279,7 @@ public class NestedServiceTests
         return (alc.LoadFromStream(ms), runResult);
     }
 
-    private sealed class HandleClient : IShaRpcClient
+    private sealed class HandleClient : global::ShaRPC.Core.IRpcInvoker
     {
         public ServiceHandle HandleResult { get; set; } = new();
         public int CountResult { get; set; }

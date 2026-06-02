@@ -11,18 +11,6 @@ namespace ShaRPC.Generated
     {
 
         /// <summary>
-        /// Creates a proxy for ICalculator.
-        /// </summary>
-        public static global::Snap.One.ICalculator CreateCalculatorProxy(this global::ShaRPC.Core.Client.IShaRpcClient client)
-            => new global::Snap.One.CalculatorProxy(client);
-
-        /// <summary>
-        /// Registers ICalculator with the server.
-        /// </summary>
-        public static global::ShaRPC.Core.Server.ShaRpcServerBuilder AddCalculator(this global::ShaRPC.Core.Server.ShaRpcServerBuilder builder, global::Snap.One.ICalculator implementation)
-            => builder.AddDispatcher(new global::Snap.One.CalculatorDispatcher(implementation));
-
-        /// <summary>
         /// Provides a ICalculator implementation for the other peer to call.
         /// </summary>
         public static global::ShaRPC.Core.RpcPeer ProvideCalculator(this global::ShaRPC.Core.RpcPeer peer, global::Snap.One.ICalculator implementation)

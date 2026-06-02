@@ -11,18 +11,6 @@ namespace ShaRPC.Generated
     {
 
         /// <summary>
-        /// Creates a proxy for IOne.
-        /// </summary>
-        public static global::Snap.Two.IOne CreateOneProxy(this global::ShaRPC.Core.Client.IShaRpcClient client)
-            => new global::Snap.Two.OneProxy(client);
-
-        /// <summary>
-        /// Registers IOne with the server.
-        /// </summary>
-        public static global::ShaRPC.Core.Server.ShaRpcServerBuilder AddOne(this global::ShaRPC.Core.Server.ShaRpcServerBuilder builder, global::Snap.Two.IOne implementation)
-            => builder.AddDispatcher(new global::Snap.Two.OneDispatcher(implementation));
-
-        /// <summary>
         /// Provides a IOne implementation for the other peer to call.
         /// </summary>
         public static global::ShaRPC.Core.RpcPeer ProvideOne(this global::ShaRPC.Core.RpcPeer peer, global::Snap.Two.IOne implementation)
@@ -33,18 +21,6 @@ namespace ShaRPC.Generated
         /// </summary>
         public static global::Snap.Two.IOne GetOne(this global::ShaRPC.Core.RpcPeer peer)
             => new global::Snap.Two.OneProxy(peer);
-
-        /// <summary>
-        /// Creates a proxy for ITwo.
-        /// </summary>
-        public static global::Snap.Two.ITwo CreateTwoProxy(this global::ShaRPC.Core.Client.IShaRpcClient client)
-            => new global::Snap.Two.TwoProxy(client);
-
-        /// <summary>
-        /// Registers ITwo with the server.
-        /// </summary>
-        public static global::ShaRPC.Core.Server.ShaRpcServerBuilder AddTwo(this global::ShaRPC.Core.Server.ShaRpcServerBuilder builder, global::Snap.Two.ITwo implementation)
-            => builder.AddDispatcher(new global::Snap.Two.TwoDispatcher(implementation));
 
         /// <summary>
         /// Provides a ITwo implementation for the other peer to call.

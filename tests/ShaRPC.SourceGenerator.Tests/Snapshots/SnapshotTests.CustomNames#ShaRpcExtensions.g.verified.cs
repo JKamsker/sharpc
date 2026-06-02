@@ -11,18 +11,6 @@ namespace ShaRPC.Generated
     {
 
         /// <summary>
-        /// Creates a proxy for IHello.
-        /// </summary>
-        public static global::Snap.Renamed.IHello CreateHelloProxy(this global::ShaRPC.Core.Client.IShaRpcClient client)
-            => new global::Snap.Renamed.HelloProxy(client);
-
-        /// <summary>
-        /// Registers IHello with the server.
-        /// </summary>
-        public static global::ShaRPC.Core.Server.ShaRpcServerBuilder AddHello(this global::ShaRPC.Core.Server.ShaRpcServerBuilder builder, global::Snap.Renamed.IHello implementation)
-            => builder.AddDispatcher(new global::Snap.Renamed.HelloDispatcher(implementation));
-
-        /// <summary>
         /// Provides a IHello implementation for the other peer to call.
         /// </summary>
         public static global::ShaRPC.Core.RpcPeer ProvideHello(this global::ShaRPC.Core.RpcPeer peer, global::Snap.Renamed.IHello implementation)

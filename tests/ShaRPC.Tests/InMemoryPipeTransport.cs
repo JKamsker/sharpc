@@ -7,28 +7,19 @@ using ShaRPC.Core.Transport;
 namespace ShaRPC.Tests;
 
 /// <summary>
-/// In-memory duplex transport backed by <see cref="System.IO.Pipelines.Pipe"/>. Lets the real
-/// <c>ShaRpcServer</c>/<c>ShaRpcClient</c> — and therefore the generated proxy and dispatcher they
-/// drive — run end-to-end through the full framing stack without sockets: deterministic, fast, and
-/// able to fragment the byte stream on demand so the frame-reassembly path is exercised exactly as
-/// it would be over a real network.
+/// In-memory duplex connection pair backed by <see cref="System.IO.Pipelines.Pipe"/>. Lets two
+/// real <see cref="ShaRPC.Core.RpcPeer"/> endpoints — and therefore the generated proxy and
+/// dispatcher they drive — run end-to-end through the full framing stack without sockets:
+/// deterministic, fast, and able to fragment the byte stream on demand so the frame-reassembly
+/// path is exercised exactly as it would be over a real network.
 /// </summary>
 internal static class InMemoryPipe
 {
     /// <summary>
-    /// Creates a linked client/server transport pair sharing two pipes (one per direction).
+    /// Creates two directly connected <see cref="IConnection"/> instances for peer tests.
     /// <paramref name="writeChunkSize"/> &gt; 0 splits every <c>SendAsync</c> into chunks of that
     /// many bytes, each flushed separately, so the receiver must reassemble a fragmented stream;
     /// 0 writes each frame in a single flush.
-    /// </summary>
-    public static (ITransport Client, IServerTransport Server) CreatePair(int writeChunkSize = 0)
-    {
-        var (clientConnection, serverConnection) = CreateConnectionPair(writeChunkSize);
-        return (new PipeClientTransport(clientConnection), new PipeServerTransport(serverConnection));
-    }
-
-    /// <summary>
-    /// Creates two directly connected <see cref="IConnection"/> instances for peer tests.
     /// </summary>
     public static (PipeConnection Client, PipeConnection Server) CreateConnectionPair(int writeChunkSize = 0)
     {
@@ -192,94 +183,6 @@ internal sealed class PipeConnection : IConnection
     }
 }
 
-/// <summary>Client transport over a pre-wired <see cref="PipeConnection"/>; connecting is a no-op.</summary>
-internal sealed class PipeClientTransport : ITransport
-{
-    private readonly PipeConnection _connection;
-    private bool _connected;
-    private bool _disposed;
-
-    public PipeClientTransport(PipeConnection connection) => _connection = connection;
-
-    public IConnection? Connection => _connected ? _connection : null;
-
-    public bool IsConnected => _connected && !_disposed && _connection.IsConnected;
-
-    public Task ConnectAsync(CancellationToken ct = default)
-    {
-        if (_disposed)
-        {
-            throw new ObjectDisposedException(nameof(PipeClientTransport));
-        }
-
-        _connected = true;
-        return Task.CompletedTask;
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        await _connection.DisposeAsync();
-    }
-}
-
-/// <summary>
-/// Server transport that yields the single in-memory connection once, then behaves like a
-/// listener with no further clients — blocking in <see cref="AcceptAsync"/> until stopped or
-/// cancelled, matching how <c>ShaRpcServer</c>'s accept loop drives a real transport.
-/// </summary>
-internal sealed class PipeServerTransport : IServerTransport
-{
-    private readonly PipeConnection _connection;
-    private readonly TaskCompletionSource<bool> _stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private int _accepted;
-    private bool _disposed;
-
-    public PipeServerTransport(PipeConnection connection) => _connection = connection;
-
-    public Task StartAsync(CancellationToken ct = default) => Task.CompletedTask;
-
-    public async Task<IConnection> AcceptAsync(CancellationToken ct = default)
-    {
-        if (_disposed)
-        {
-            throw new ObjectDisposedException(nameof(PipeServerTransport));
-        }
-
-        if (Interlocked.Exchange(ref _accepted, 1) == 0)
-        {
-            return _connection;
-        }
-
-        using (ct.Register(() => _stopped.TrySetResult(true)))
-        {
-            await _stopped.Task;
-        }
-
-        ct.ThrowIfCancellationRequested();
-        throw new OperationCanceledException();
-    }
-
-    public Task StopAsync(CancellationToken ct = default)
-    {
-        _stopped.TrySetResult(true);
-        return Task.CompletedTask;
-    }
-
-    public ValueTask DisposeAsync()
-    {
-        if (_disposed)
-        {
-            return default;
-        }
-
-        _disposed = true;
-        _stopped.TrySetResult(true);
-        return default;
-    }
-}
+// (PipeClientTransport / PipeServerTransport adapters were removed: peer/host tests use
+// CreateConnectionPair + RpcPeer/RpcHost directly, and the production SingleConnectionServerTransport
+// / NamedPipeServerTransport for accept-loop coverage.)

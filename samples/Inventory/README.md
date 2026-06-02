@@ -61,8 +61,8 @@ opened inventory for alice                <-- different player, different instan
 
 - A sub-service handle round-trips as a tiny `ServiceHandle { ServiceName, InstanceId }`.
 - Each connection gets one `IInstanceRegistry`; instances are released when the connection closes.
-- The proxy class has two constructors: `(IShaRpcClient)` for a top-level proxy and
-  `(IShaRpcClient, string instanceId)` for an instance-scoped one — the latter is what
+- The proxy class has two constructors: `(IRpcInvoker)` for a top-level proxy and
+  `(IRpcInvoker, string instanceId)` for an instance-scoped one — the latter is what
   the parent proxy instantiates when wrapping a returned `ServiceHandle`.
 - The dispatcher class implements both `DispatchAsync` (singleton routing) and
   `DispatchOnInstanceAsync` (instance routing); the server picks based on whether the

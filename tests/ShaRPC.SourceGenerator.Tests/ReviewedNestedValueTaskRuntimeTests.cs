@@ -148,7 +148,7 @@ public class ReviewedNestedValueTaskRuntimeTests
         return (alc.LoadFromStream(ms), runResult);
     }
 
-    private sealed class RecordingClient : IShaRpcClient
+    private sealed class RecordingClient : global::ShaRPC.Core.IRpcInvoker
     {
         public ServiceHandle HandleResult { get; set; } = new();
         public int CountResult { get; set; }

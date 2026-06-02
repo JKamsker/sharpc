@@ -11,18 +11,6 @@ namespace ShaRPC.Generated
     {
 
         /// <summary>
-        /// Creates a proxy for IVtSnap.
-        /// </summary>
-        public static global::Snap.Vt.IVtSnap CreateVtSnapProxy(this global::ShaRPC.Core.Client.IShaRpcClient client)
-            => new global::Snap.Vt.VtSnapProxy(client);
-
-        /// <summary>
-        /// Registers IVtSnap with the server.
-        /// </summary>
-        public static global::ShaRPC.Core.Server.ShaRpcServerBuilder AddVtSnap(this global::ShaRPC.Core.Server.ShaRpcServerBuilder builder, global::Snap.Vt.IVtSnap implementation)
-            => builder.AddDispatcher(new global::Snap.Vt.VtSnapDispatcher(implementation));
-
-        /// <summary>
         /// Provides a IVtSnap implementation for the other peer to call.
         /// </summary>
         public static global::ShaRPC.Core.RpcPeer ProvideVtSnap(this global::ShaRPC.Core.RpcPeer peer, global::Snap.Vt.IVtSnap implementation)

@@ -129,7 +129,7 @@ public class NullableSubServiceRuntimeTests
         return taskLike.GetType().GetProperty("Result")!.GetValue(taskLike);
     }
 
-    private sealed class NullHandleClient : IShaRpcClient
+    private sealed class NullHandleClient : global::ShaRPC.Core.IRpcInvoker
     {
         public bool IsConnected => true;
         public Task ConnectAsync(CancellationToken ct = default) => Task.CompletedTask;

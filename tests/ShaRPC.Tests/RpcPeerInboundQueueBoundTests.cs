@@ -95,6 +95,41 @@ public sealed class RpcPeerInboundQueueBoundTests
     }
 
     [Fact]
+    public async Task WaitQueue_DispatchesConcurrently_UpToMaxConcurrentInboundDispatch()
+    {
+        var serializer = NewSerializer();
+        await using var connection = new ScriptedConnection();
+        var dispatcher = new ConcurrencyTrackingDispatcher(maxExpected: 3);
+
+        for (var id = 1; id <= 5; id++)
+        {
+            connection.Enqueue(CreateRequestFrame(serializer, id, ConcurrencyTrackingDispatcher.Service, "Run"));
+        }
+
+        await using var peer = RpcPeer
+            .Over(
+                connection,
+                serializer,
+                new RpcPeerOptions
+                {
+                    InboundQueueCapacity = 5,
+                    MaxConcurrentInboundDispatch = 3,
+                    QueueFullMode = ShaRpcQueueFullMode.Wait,
+                    RequestTimeout = TimeSpan.FromSeconds(5),
+                })
+            .Provide((IServiceDispatcher)dispatcher)
+            .Start();
+
+        // Exactly maxConcurrency=3 dispatches run at once: the 3rd entering proves concurrency is
+        // applied (with serial dispatch this wait would time out), and the 4th cannot enter because
+        // all dispatch slots are held — asserted deterministically, not via a delay.
+        await dispatcher.TargetReached.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.False(dispatcher.OverflowEntered.IsCompleted);
+
+        dispatcher.Release();
+    }
+
+    [Fact]
     public async Task RejectInboundCalls_ReturnsExplicitErrorResponse()
     {
         var serializer = NewSerializer();
@@ -133,6 +168,9 @@ public sealed class RpcPeerInboundQueueBoundTests
     }
 
     private static Payload CreateRequestFrame(ISerializer serializer, int messageId) =>
+        CreateRequestFrame(serializer, messageId, BlockingDispatcher.Service, "Hold");
+
+    private static Payload CreateRequestFrame(ISerializer serializer, int messageId, string service, string method) =>
         MessageFramer.FrameMessage(
             serializer,
             messageId,
@@ -140,8 +178,8 @@ public sealed class RpcPeerInboundQueueBoundTests
             new RpcRequest
             {
                 MessageId = messageId,
-                ServiceName = BlockingDispatcher.Service,
-                MethodName = "Hold",
+                ServiceName = service,
+                MethodName = method,
             },
             ReadOnlySpan<byte>.Empty);
 
@@ -186,4 +224,57 @@ public sealed class RpcPeerInboundQueueBoundTests
         public void Release() => _release.TrySetResult(true);
     }
 
+    private sealed class ConcurrencyTrackingDispatcher : IServiceDispatcher
+    {
+        public const string Service = "Concurrent";
+
+        private readonly int _maxExpected;
+        private readonly TaskCompletionSource<bool> _release =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _targetReached =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _overflowEntered =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _active;
+
+        public ConcurrencyTrackingDispatcher(int maxExpected) => _maxExpected = maxExpected;
+
+        public string ServiceName => Service;
+
+        /// <summary>Completes once <c>maxExpected</c> dispatches are concurrently active.</summary>
+        public Task TargetReached => _targetReached.Task;
+
+        /// <summary>Completes if a dispatch beyond <c>maxExpected</c> ever becomes active.</summary>
+        public Task OverflowEntered => _overflowEntered.Task;
+
+        public async Task DispatchAsync(
+            string method,
+            ReadOnlyMemory<byte> payload,
+            ISerializer serializer,
+            IInstanceRegistry registry,
+            IBufferWriter<byte> output,
+            CancellationToken ct = default)
+        {
+            var active = Interlocked.Increment(ref _active);
+            if (active == _maxExpected)
+            {
+                _targetReached.TrySetResult(true);
+            }
+            else if (active > _maxExpected)
+            {
+                _overflowEntered.TrySetResult(true);
+            }
+
+            try
+            {
+                await _release.Task.WaitAsync(ct).ConfigureAwait(false);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _active);
+            }
+        }
+
+        public void Release() => _release.TrySetResult(true);
+    }
 }

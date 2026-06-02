@@ -47,7 +47,7 @@ public class GeneratedFactoryRegistryTests
         var generated = assembly.GetType("ShaRPC.Generated.ShaRpcGenerated")
             ?? throw new InvalidOperationException("Generated factory type not found.");
         var proxy = generated
-            .GetMethod("CreateProxy", new[] { typeof(Type), typeof(IShaRpcClient) })!
+            .GetMethod("CreateProxy", new[] { typeof(Type), typeof(global::ShaRPC.Core.IRpcInvoker) })!
             .Invoke(null, new object[] { interfaceType, client });
         var dispatcher = generated
             .GetMethod("CreateDispatcher", new[] { typeof(Type), typeof(object) })!
@@ -238,7 +238,7 @@ public class GeneratedFactoryRegistryTests
         return context.LoadFromStream(stream);
     }
 
-    private sealed class NullClient : IShaRpcClient
+    private sealed class NullClient : global::ShaRPC.Core.IRpcInvoker
     {
         public bool IsConnected => true;
 

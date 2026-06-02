@@ -1,4 +1,4 @@
-using ShaRPC.Core.Peer;
+using ShaRPC.Core;
 using ShaRPC.Generated;
 using ShaRPC.Serializers.MessagePack;
 using Shared;
@@ -14,20 +14,18 @@ public class PeerIntegrationTests
         var (leftConnection, rightConnection) = InMemoryPipe.CreateConnectionPair(writeChunkSize: 3);
         var serializer = new MessagePackRpcSerializer();
 
-        await using var leftPeer = await ShaRpcPeer.StartAsync(
-            leftConnection,
-            serializer,
-            builder => builder.AddDispatcher(ShaRpcGenerated.CreateDispatcher<IGameService>(new TestGameService())),
-            new ShaRpcPeerOptions { RequestTimeout = TimeSpan.FromSeconds(5) });
+        await using var leftPeer = RpcPeer
+            .Over(leftConnection, serializer, new RpcPeerOptions { RequestTimeout = TimeSpan.FromSeconds(5) })
+            .ProvideGameService(new TestGameService())
+            .Start();
 
-        await using var rightPeer = await ShaRpcPeer.StartAsync(
-            rightConnection,
-            serializer,
-            builder => builder.AddDispatcher(ShaRpcGenerated.CreateDispatcher<IGameService>(new TestGameService())),
-            new ShaRpcPeerOptions { RequestTimeout = TimeSpan.FromSeconds(5) });
+        await using var rightPeer = RpcPeer
+            .Over(rightConnection, serializer, new RpcPeerOptions { RequestTimeout = TimeSpan.FromSeconds(5) })
+            .ProvideGameService(new TestGameService())
+            .Start();
 
-        var rightService = leftPeer.CreateProxy<IGameService>();
-        var leftService = rightPeer.CreateProxy<IGameService>();
+        var rightService = leftPeer.GetGameService();
+        var leftService = rightPeer.GetGameService();
 
         var playerOnRight = await rightService.RegisterPlayerAsync("right-player");
         var playerOnLeft = await leftService.RegisterPlayerAsync("left-player");

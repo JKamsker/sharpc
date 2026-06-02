@@ -1,6 +1,5 @@
-using ShaRPC.Core.Client;
+using ShaRPC.Core;
 using ShaRPC.Core.Protocol;
-using ShaRPC.Core.Server;
 using ShaRPC.Core.Transport;
 using ShaRPC.Generated;
 using ShaRPC.Serializers.MessagePack;
@@ -47,21 +46,21 @@ public sealed class NamedPipeTransportTests
     public async Task NamedPipeTransport_RunsGeneratedRpcEndToEnd()
     {
         var pipeName = CreatePipeName();
-        await using var server = new ShaRpcServerBuilder()
-            .UseTransport(new NamedPipeServerTransport(pipeName))
-            .UseSerializer(new MessagePackRpcSerializer())
-            .AddGameService(new TestGameService())
-            .Build();
-        await server.StartAsync();
+        await using var host = RpcHost
+            .Listen(new NamedPipeServerTransport(pipeName), new MessagePackRpcSerializer())
+            .ForEachPeer(peer => peer.ProvideGameService(new TestGameService()));
+        await host.StartAsync();
 
-        await using var client = new ShaRpcClientBuilder()
-            .UseTransport(new NamedPipeClientTransport(pipeName))
-            .UseSerializer(new MessagePackRpcSerializer())
-            .WithTimeout(TimeSpan.FromSeconds(5))
-            .Build();
-        await client.ConnectAsync();
+        await using var clientTransport = new NamedPipeClientTransport(pipeName);
+        await clientTransport.ConnectAsync();
+        await using var client = RpcPeer
+            .Over(
+                clientTransport.Connection!,
+                new MessagePackRpcSerializer(),
+                new RpcPeerOptions { RequestTimeout = TimeSpan.FromSeconds(5) })
+            .Start();
 
-        var game = client.CreateGameServiceProxy();
+        var game = client.GetGameService();
         var status = await game.GetServerStatusAsync();
 
         Assert.Equal("1.0.0-test", status.Version);

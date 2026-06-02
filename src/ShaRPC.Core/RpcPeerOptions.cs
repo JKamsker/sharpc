@@ -10,9 +10,11 @@ public sealed class RpcPeerOptions
 {
     public const int DefaultInboundQueueCapacity = 1024;
     public const int DefaultMaxPendingRequests = 4096;
+    public const int DefaultMaxConcurrentInboundDispatch = 1;
 
     private int? _inboundQueueCapacity = DefaultInboundQueueCapacity;
     private int _maxPendingRequests = DefaultMaxPendingRequests;
+    private int _maxConcurrentInboundDispatch = DefaultMaxConcurrentInboundDispatch;
     private ShaRpcQueueFullMode _queueFullMode = ShaRpcQueueFullMode.Wait;
     private TimeSpan _requestTimeout = TimeSpan.FromSeconds(30);
 
@@ -100,6 +102,31 @@ public sealed class RpcPeerOptions
             }
 
             _maxPendingRequests = value;
+        }
+    }
+
+    /// <summary>
+    /// Maximum number of inbound requests dispatched concurrently when <see cref="InboundQueueCapacity"/>
+    /// is set. The default of 1 dispatches serially per connection (preserving ordering and bounding
+    /// work). Raise it for concurrent per-connection dispatch; total in-flight inbound work is then
+    /// bounded by <see cref="InboundQueueCapacity"/> + this value. Ignored when
+    /// <see cref="InboundQueueCapacity"/> is <see langword="null"/> (which dispatches immediately and
+    /// does not cap concurrency).
+    /// </summary>
+    public int MaxConcurrentInboundDispatch
+    {
+        get => _maxConcurrentInboundDispatch;
+        init
+        {
+            if (value <= 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(MaxConcurrentInboundDispatch),
+                    value,
+                    "Maximum concurrent inbound dispatch must be greater than zero.");
+            }
+
+            _maxConcurrentInboundDispatch = value;
         }
     }
 

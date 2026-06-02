@@ -73,43 +73,70 @@ public interface IGameService
 }
 ```
 
-### 2. Implement Server
+### 2. Host the Service
+
+A `RpcHost` accepts connections and turns each one into an `RpcPeer`. The
+generator emits a `Provide{Service}` extension per `[ShaRpcService]`:
 
 ```csharp
-var server = new ShaRpcServerBuilder()
-    .UseTransport(new TcpServerTransport(7777))
-    .UseSerializer(new MessagePackRpcSerializer())
-    .AddGameService(new GameService())
-    .Build();
+using ShaRPC.Core;
+using ShaRPC.Generated;
+using ShaRPC.Serializers.MessagePack;
+using ShaRPC.Transports.Tcp;
 
-await server.StartAsync();
+await using var host = RpcHost
+    .Listen(new TcpServerTransport(7777), new MessagePackRpcSerializer())
+    .ForEachPeer(peer => peer.ProvideGameService(new GameService()));
+
+await host.StartAsync();
+// host.PeerConnected / host.PeerDisconnected / host.AcceptError surface lifecycle events.
+// await host.StopAsync();  closes every accepted peer (DisposeAsync also stops).
 ```
 
-### 3. Create Client
+### 3. Call the Service
+
+The caller connects a transport, wraps the connection in an `RpcPeer`, and asks
+the generator for a proxy via `Get{Service}`. `RejectInboundCalls = true`
+declares a call-only peer that refuses any callbacks from the other side:
 
 ```csharp
-var client = new ShaRpcClientBuilder()
-    .UseTransport(new TcpTransport("localhost", 7777))
-    .UseSerializer(new MessagePackRpcSerializer())
-    .Build();
+var transport = new TcpTransport("localhost", 7777);
+await transport.ConnectAsync();
 
-await client.ConnectAsync();
+await using var peer = RpcPeer
+    .Over(transport.Connection!, new MessagePackRpcSerializer(),
+          new RpcPeerOptions { RejectInboundCalls = true })
+    .Start();
 
-var gameService = client.CreateGameServiceProxy();
+var gameService = peer.GetGameService();
 var player = await gameService.JoinAsync("Player1");
 ```
 
 ### Bidirectional Peer
 
-For named pipes, plugin IPC, sidecars, and other duplex transports, both endpoints can serve and call services over one connection:
+For named pipes, plugin IPC, sidecars, and other duplex transports, both endpoints can serve and call services over one connection. Each side is an `RpcPeer` over the same duplex `IRpcChannel`, and each may both `Provide` services and `Get` proxies:
 
 ```csharp
-var peer = await ShaRpcPeer.StartAsync(
-    connection,
-    new MessagePackRpcSerializer(),
-    builder => builder.AddDispatcher(ShaRpcGenerated.CreateDispatcher<IGameService>(gameService)));
+// One side: provide IGameService, call back into IRemoteGameService.
+await using var peer = RpcPeer
+    .Over(connection, new MessagePackRpcSerializer())
+    .ProvideGameService(gameService)
+    .Start();
 
-var remote = peer.CreateProxy<IRemoteGameService>();
+var remote = peer.GetRemoteGameService();
+```
+
+`ProvideGameService` / `GetRemoteGameService` are generator-emitted shortcuts.
+If you hold the dispatcher or proxy yourself, the generic factory and the
+`Provide` / `IRpcInvoker` overloads do the same thing:
+
+```csharp
+await using var peer = RpcPeer
+    .Over(connection, new MessagePackRpcSerializer())
+    .Provide(ShaRpcGenerated.CreateDispatcher<IGameService>(gameService))
+    .Start();
+
+var remote = ShaRpcGenerated.CreateProxy<IRemoteGameService>(peer);
 ```
 
 Named-pipe IPC uses a dedicated transport package:
@@ -166,7 +193,8 @@ Subsequent calls on the sub-proxy go back to that exact object.
     Task<IReadOnlyList<Item>> ListItemsAsync(CancellationToken ct = default);
 }
 
-// client:
+// caller side:
+var inventoryProxy = peer.GetInventoryService();
 var inv = await inventoryProxy.OpenInventoryAsync("cleo");   // returns a real sub-proxy
 await inv.AddItemAsync("sword", 1);                          // routes back to the same server instance
 ```

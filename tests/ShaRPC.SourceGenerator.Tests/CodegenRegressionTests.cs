@@ -893,8 +893,8 @@ public class CodegenRegressionTests
         var extensions = runResult.Results.Single().GeneratedSources
             .Single(g => g.HintName == "ShaRpcExtensions.g.cs")
             .SourceText.ToString();
-        extensions.Should().Contain("CreateRegress_Flat_FooProxy");
-        extensions.Should().Contain("CreateRegress_Flat__");
+        extensions.Should().Contain("GetRegress_Flat_Foo");
+        extensions.Should().Contain("GetRegress_Flat__");
     }
 
     /// <summary>
@@ -1034,8 +1034,8 @@ public class CodegenRegressionTests
             "Task<TResponse> InvokeAsync<TResponse>(...) is wrong for void — it would force the serializer to deserialize an empty response body");
     }
 
-    /// <summary>A minimal IShaRpcClient that does nothing — for SHARPC002 stub testing.</summary>
-    private sealed class NullClient : global::ShaRPC.Core.Client.IShaRpcClient
+    /// <summary>A minimal IRpcInvoker that does nothing — for SHARPC002 stub testing.</summary>
+    private sealed class NullClient : global::ShaRPC.Core.IRpcInvoker
     {
         public bool IsConnected => true;
         public Task ConnectAsync(System.Threading.CancellationToken ct = default) => Task.CompletedTask;
@@ -1059,7 +1059,7 @@ public class CodegenRegressionTests
 
     /// <summary>
     /// Regression: a service interface declared inside the <c>ShaRPC.Core.*</c> namespace
-    /// must still compile. The generated code references `global::ShaRPC.Core.Client.IShaRpcClient`
+    /// must still compile. The generated code references `global::ShaRPC.Core.IRpcInvoker`
     /// etc. — without the `global::` qualifier the user's namespace would shadow ours.
     /// </summary>
     [Fact]
@@ -1455,7 +1455,7 @@ public class CodegenRegressionTests
     }
 
     /// <summary>A client whose <c>Task&lt;TResponse&gt;</c> overload returns a configured value.</summary>
-    private sealed class ValueReturningClient : global::ShaRPC.Core.Client.IShaRpcClient
+    private sealed class ValueReturningClient : global::ShaRPC.Core.IRpcInvoker
     {
         public object? NextResult;
         public bool IsConnected => true;
@@ -1482,8 +1482,8 @@ public class CodegenRegressionTests
             => InvokeAsync(s, m, ct);
     }
 
-    /// <summary>An IShaRpcClient that records which overload was actually called.</summary>
-    private sealed class OverloadProbeClient : global::ShaRPC.Core.Client.IShaRpcClient
+    /// <summary>An IRpcInvoker that records which overload was actually called.</summary>
+    private sealed class OverloadProbeClient : global::ShaRPC.Core.IRpcInvoker
     {
         public int WithRequestWithResponseOverloadCalls;
         public int WithResponseOverloadCalls;

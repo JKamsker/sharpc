@@ -1,6 +1,5 @@
 using Shared;
-using ShaRPC.Core.Client;
-using ShaRPC.Core.Server;
+using ShaRPC.Core;
 using ShaRPC.Generated;
 using ShaRPC.Serializers.MessagePack;
 using Xunit;
@@ -8,35 +7,29 @@ using Xunit;
 namespace ShaRPC.Tests;
 
 /// <summary>
-/// Runs the real <see cref="ShaRpcServer"/> + <see cref="ShaRpcClient"/> — and therefore the
-/// generated GameService proxy and dispatcher they drive — over the in-memory
-/// <see cref="System.IO.Pipelines.Pipe"/> transport. This proves the generated code round-trips
-/// through the full framing/transport stack (RpcRequest/RpcResponse envelope, MessageFramer, the
-/// receive loops, MessageId correlation) without sockets, including when the byte stream is
-/// delivered one byte at a time.
+/// Runs two real <see cref="RpcPeer"/> endpoints — and therefore the generated GameService proxy
+/// and dispatcher they drive — over the in-memory <see cref="System.IO.Pipelines.Pipe"/> transport.
+/// This proves the generated code round-trips through the full framing/transport stack
+/// (RpcRequest/RpcResponse envelope, MessageFramer, the demuxed read loop, MessageId correlation)
+/// without sockets, including when the byte stream is delivered one byte at a time.
 /// </summary>
 public sealed class PipeTransportIntegrationTests
 {
-    private static async Task<Harness> StartAsync(int writeChunkSize)
+    private static Task<Harness> StartAsync(int writeChunkSize)
     {
-        var (clientTransport, serverTransport) = InMemoryPipe.CreatePair(writeChunkSize);
+        var (clientConnection, serverConnection) = InMemoryPipe.CreateConnectionPair(writeChunkSize);
         var serializer = new MessagePackRpcSerializer();
 
-        var server = new ShaRpcServerBuilder()
-            .UseTransport(serverTransport)
-            .UseSerializer(serializer)
-            .AddGameService(new TestGameService())
-            .Build();
-        await server.StartAsync();
+        var server = RpcPeer
+            .Over(serverConnection, serializer)
+            .ProvideGameService(new TestGameService())
+            .Start();
 
-        var client = new ShaRpcClientBuilder()
-            .UseTransport(clientTransport)
-            .UseSerializer(serializer)
-            .WithTimeout(TimeSpan.FromSeconds(5))
-            .Build();
-        await client.ConnectAsync();
+        var client = RpcPeer
+            .Over(clientConnection, serializer, new RpcPeerOptions { RequestTimeout = TimeSpan.FromSeconds(5) })
+            .Start();
 
-        return new Harness(server, client, client.CreateGameServiceProxy());
+        return Task.FromResult(new Harness(server, client, client.GetGameService()));
     }
 
     [Fact]
@@ -131,12 +124,12 @@ public sealed class PipeTransportIntegrationTests
 
     private sealed class Harness : IAsyncDisposable
     {
-        private readonly ShaRpcServer _server;
-        private readonly ShaRpcClient _client;
+        private readonly RpcPeer _server;
+        private readonly RpcPeer _client;
 
         public IGameService Game { get; }
 
-        public Harness(ShaRpcServer server, ShaRpcClient client, IGameService game)
+        public Harness(RpcPeer server, RpcPeer client, IGameService game)
         {
             _server = server;
             _client = client;
@@ -146,7 +139,6 @@ public sealed class PipeTransportIntegrationTests
         public async ValueTask DisposeAsync()
         {
             await _client.DisposeAsync();
-            await _server.StopAsync();
             await _server.DisposeAsync();
         }
     }

@@ -46,8 +46,8 @@ ShaRPC is a transport-agnostic RPC framework designed with Unity compatibility a
 │  │ GameServiceProxy (gen)│  │   │  │GameServiceDispatcher  │  │
 │  └───────────────────────┘  │   │  │       (generated)     │  │
 │  ┌───────────────────────┐  │   │  └───────────────────────┘  │
-│  │    ShaRpcClient       │  │   │  ┌───────────────────────┐  │
-│  └───────────────────────┘  │   │  │    ShaRpcServer       │  │
+│  │    RpcPeer            │  │   │  ┌───────────────────────┐  │
+│  └───────────────────────┘  │   │  │     RpcHost           │  │
 │  ┌───────────────────────┐  │   │  └───────────────────────┘  │
 │  │    TcpTransport       │◄─┼───┼─►│  TcpServerTransport   │  │
 │  └───────────────────────┘  │   │  └───────────────────────┘  │
@@ -333,7 +333,7 @@ public class GameService : IGameService
 // YourGame.Server/Program.cs
 using YourGame.Server;
 using YourGame.Shared;
-using ShaRPC.Core.Server;
+using ShaRPC.Core;
 using ShaRPC.Generated;
 using ShaRPC.Serializers.MessagePack;
 using ShaRPC.Transports.Tcp;
@@ -345,13 +345,13 @@ Console.WriteLine($"Starting game server on port {Port}...");
 var gameState = new GameState();
 var gameService = new GameService(gameState);
 
-var server = new ShaRpcServerBuilder()
-    .UseTransport(new TcpServerTransport(Port))
-    .UseSerializer(new MessagePackRpcSerializer())
-    .AddGameService(gameService)  // Generated extension method
-    .Build();
+// RpcHost listens and turns every accepted connection into a peer. ForEachPeer
+// runs once per connection to provide the services that peer exposes.
+await using var host = RpcHost
+    .Listen(new TcpServerTransport(Port), new MessagePackRpcSerializer())
+    .ForEachPeer(peer => peer.ProvideGameService(gameService)); // Generated extension method
 
-await server.StartAsync();
+await host.StartAsync();
 Console.WriteLine("Server started. Press Ctrl+C to stop.");
 
 var cts = new CancellationTokenSource();
@@ -363,7 +363,7 @@ try
 }
 catch (OperationCanceledException) { }
 
-await server.StopAsync();
+await host.StopAsync();
 Console.WriteLine("Server stopped.");
 ```
 
@@ -379,7 +379,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
-using ShaRPC.Core.Client;
+using ShaRPC.Core;
 using ShaRPC.Generated;
 using ShaRPC.Serializers.MessagePack;
 using ShaRPC.Transports.Tcp;
@@ -395,13 +395,14 @@ public class NetworkManager : MonoBehaviour
     [SerializeField] private float connectionTimeout = 10f;
 
     public IGameService GameService { get; private set; }
-    public bool IsConnected => _client?.IsConnected ?? false;
+    public bool IsConnected => _peer?.IsConnected ?? false;
 
     public event Action OnConnected;
     public event Action OnDisconnected;
     public event Action<string> OnConnectionError;
 
-    private ShaRpcClient _client;
+    private RpcPeer _peer;
+    private TcpTransport _transport;
     private CancellationTokenSource _cts;
 
     private void Awake()
@@ -438,22 +439,26 @@ public class NetworkManager : MonoBehaviour
         {
             Debug.Log($"Connecting to {host}:{port}...");
 
-            var transport = new TcpTransport(host, port.Value);
+            _transport = new TcpTransport(host, port.Value);
             var serializer = new MessagePackRpcSerializer();
-
-            _client = new ShaRpcClientBuilder()
-                .UseTransport(transport)
-                .UseSerializer(serializer)
-                .WithTimeout(TimeSpan.FromSeconds(connectionTimeout))
-                .Build();
 
             using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
             connectCts.CancelAfter(TimeSpan.FromSeconds(connectionTimeout));
 
-            await _client.ConnectAsync(connectCts.Token);
+            // Establish the underlying connection, then layer a peer over it.
+            await _transport.ConnectAsync(connectCts.Token);
+
+            _peer = RpcPeer
+                .Over(_transport.Connection!, serializer, new RpcPeerOptions
+                {
+                    RequestTimeout = TimeSpan.FromSeconds(connectionTimeout),
+                    // This client only calls out; it never serves inbound calls.
+                    RejectInboundCalls = true
+                })
+                .Start();
 
             // Create the service proxy
-            GameService = _client.CreateGameServiceProxy();
+            GameService = _peer.GetGameService();
 
             Debug.Log("Connected to server!");
             OnConnected?.Invoke();
@@ -475,17 +480,20 @@ public class NetworkManager : MonoBehaviour
 
     public void Disconnect()
     {
-        if (_client == null) return;
+        if (_peer == null) return;
 
         _cts?.Cancel();
 
         try
         {
-            _client.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(2));
+            // Disposing the peer stops its read loop; dispose the transport to close the socket.
+            _peer.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(2));
+            _transport?.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(2));
         }
         catch { }
 
-        _client = null;
+        _peer = null;
+        _transport = null;
         GameService = null;
         _cts?.Dispose();
         _cts = null;
@@ -1282,19 +1290,20 @@ Register multiple services on the same server:
 [ShaRpcService] public interface IChatService { ... }
 [ShaRpcService] public interface IInventoryService { ... }
 
-// Server
-var server = new ShaRpcServerBuilder()
-    .UseTransport(transport)
-    .UseSerializer(serializer)
-    .AddGameService(gameService)
-    .AddChatService(chatService)
-    .AddInventoryService(inventoryService)
-    .Build();
+// Server: provide every service on each accepted peer
+await using var host = RpcHost
+    .Listen(serverTransport, serializer)
+    .ForEachPeer(peer =>
+    {
+        peer.ProvideGameService(gameService);
+        peer.ProvideChatService(chatService);
+        peer.ProvideInventoryService(inventoryService);
+    });
 
-// Client
-var game = client.CreateGameServiceProxy();
-var chat = client.CreateChatServiceProxy();
-var inventory = client.CreateInventoryServiceProxy();
+// Client: get a proxy per service from the same peer
+var game = peer.GetGameService();
+var chat = peer.GetChatService();
+var inventory = peer.GetInventoryService();
 ```
 
 ### Server-to-Client Notifications (Future)

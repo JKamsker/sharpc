@@ -45,6 +45,7 @@ internal sealed class RpcPeerInboundDispatcher
         _queue = new RpcPeerInboundRequestQueue(
             capacity,
             options.QueueFullMode,
+            options.MaxConcurrentInboundDispatch,
             ProcessRequestAsync,
             ReleaseRequest);
     }

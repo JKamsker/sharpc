@@ -80,9 +80,9 @@ public class ReviewedCodegenRegressionTests
         var extensions = runResult.Results.Single().GeneratedSources
             .Single(g => g.HintName == "ShaRpcExtensions.g.cs")
             .SourceText.ToString();
-        extensions.Should().Contain("CreateA_B_FooProxy");
-        extensions.Should().Contain("CreateA_B_Foo__1Proxy");
-        extensions.Should().Contain("CreateC_FooProxy");
+        extensions.Should().Contain("GetA_B_Foo");
+        extensions.Should().Contain("GetA_B_Foo__1");
+        extensions.Should().Contain("GetC_Foo");
     }
 
     [Fact]

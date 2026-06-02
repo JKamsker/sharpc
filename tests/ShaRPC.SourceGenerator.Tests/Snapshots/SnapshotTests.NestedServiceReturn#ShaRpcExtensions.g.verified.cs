@@ -11,18 +11,6 @@ namespace ShaRPC.Generated
     {
 
         /// <summary>
-        /// Creates a proxy for IRootSnap.
-        /// </summary>
-        public static global::Snap.Nested.IRootSnap CreateRootSnapProxy(this global::ShaRPC.Core.Client.IShaRpcClient client)
-            => new global::Snap.Nested.RootSnapProxy(client);
-
-        /// <summary>
-        /// Registers IRootSnap with the server.
-        /// </summary>
-        public static global::ShaRPC.Core.Server.ShaRpcServerBuilder AddRootSnap(this global::ShaRPC.Core.Server.ShaRpcServerBuilder builder, global::Snap.Nested.IRootSnap implementation)
-            => builder.AddDispatcher(new global::Snap.Nested.RootSnapDispatcher(implementation));
-
-        /// <summary>
         /// Provides a IRootSnap implementation for the other peer to call.
         /// </summary>
         public static global::ShaRPC.Core.RpcPeer ProvideRootSnap(this global::ShaRPC.Core.RpcPeer peer, global::Snap.Nested.IRootSnap implementation)
@@ -33,18 +21,6 @@ namespace ShaRPC.Generated
         /// </summary>
         public static global::Snap.Nested.IRootSnap GetRootSnap(this global::ShaRPC.Core.RpcPeer peer)
             => new global::Snap.Nested.RootSnapProxy(peer);
-
-        /// <summary>
-        /// Creates a proxy for ISubSnap.
-        /// </summary>
-        public static global::Snap.Nested.ISubSnap CreateSubSnapProxy(this global::ShaRPC.Core.Client.IShaRpcClient client)
-            => new global::Snap.Nested.SubSnapProxy(client);
-
-        /// <summary>
-        /// Registers ISubSnap with the server.
-        /// </summary>
-        public static global::ShaRPC.Core.Server.ShaRpcServerBuilder AddSubSnap(this global::ShaRPC.Core.Server.ShaRpcServerBuilder builder, global::Snap.Nested.ISubSnap implementation)
-            => builder.AddDispatcher(new global::Snap.Nested.SubSnapDispatcher(implementation));
 
         /// <summary>
         /// Provides a ISubSnap implementation for the other peer to call.

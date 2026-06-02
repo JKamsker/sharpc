@@ -36,20 +36,6 @@ internal static class ExtensionsGenerator
 
             sb.AppendLine();
             sb.AppendLine("        /// <summary>");
-            sb.AppendLine($"        /// Creates a proxy for {service.InterfaceName}.");
-            sb.AppendLine("        /// </summary>");
-            sb.AppendLine($"        public static {fullInterfaceName} Create{extensionSuffix}Proxy(this global::ShaRPC.Core.Client.IShaRpcClient client)");
-            sb.AppendLine($"            => new {fullProxyName}(client);");
-
-            sb.AppendLine();
-            sb.AppendLine("        /// <summary>");
-            sb.AppendLine($"        /// Registers {service.InterfaceName} with the server.");
-            sb.AppendLine("        /// </summary>");
-            sb.AppendLine($"        public static global::ShaRPC.Core.Server.ShaRpcServerBuilder Add{extensionSuffix}(this global::ShaRPC.Core.Server.ShaRpcServerBuilder builder, {fullInterfaceName} implementation)");
-            sb.AppendLine($"            => builder.AddDispatcher(new {fullDispatcherName}(implementation));");
-
-            sb.AppendLine();
-            sb.AppendLine("        /// <summary>");
             sb.AppendLine($"        /// Provides a {service.InterfaceName} implementation for the other peer to call.");
             sb.AppendLine("        /// </summary>");
             sb.AppendLine($"        public static global::ShaRPC.Core.RpcPeer Provide{extensionSuffix}(this global::ShaRPC.Core.RpcPeer peer, {fullInterfaceName} implementation)");
