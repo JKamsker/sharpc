@@ -20,7 +20,7 @@ internal static class RpcTaskWaiter
             if (await Task.WhenAny(task, canceled.Task).ConfigureAwait(false) != task)
             {
                 _ = task.ContinueWith(
-                    static completed => _ = completed.Exception,
+                    static completed => RpcDiagnostics.Report("Orphaned task faulted after cancellation", completed.Exception!),
                     CancellationToken.None,
                     TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
                     TaskScheduler.Default);

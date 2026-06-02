@@ -37,7 +37,7 @@ internal sealed class ShaRpcPendingRequests
         ReadOnlyMemory<byte> payload,
         Payload frame)
     {
-        if (!_requests.TryGetValue(messageId, out var tcs))
+        if (!_requests.TryRemove(messageId, out var tcs))
         {
             return false;
         }
@@ -53,7 +53,7 @@ internal sealed class ShaRpcPendingRequests
 
     public bool TryFail(int messageId, Exception error)
     {
-        if (!_requests.TryGetValue(messageId, out var tcs))
+        if (!_requests.TryRemove(messageId, out var tcs))
         {
             return false;
         }

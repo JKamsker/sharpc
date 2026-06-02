@@ -43,8 +43,17 @@ public sealed class ShaRpcClient : IShaRpcClient
             throw new InvalidOperationException("Already connected.");
         }
 
-        await _transport.ConnectAsync(ct).ConfigureAwait(false);
-        _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        try
+        {
+            await _transport.ConnectAsync(ct).ConfigureAwait(false);
+        }
+        catch
+        {
+            Interlocked.Exchange(ref _connected, 0);
+            throw;
+        }
+
+        _cts = new CancellationTokenSource();
         _receiveTask = _receiveLoop.RunAsync(_cts.Token);
     }
 
@@ -195,7 +204,8 @@ public sealed class ShaRpcClient : IShaRpcClient
 
     private (int MessageId, TaskCompletionSource<ReceivedResponse> Completion) ReservePendingRequest()
     {
-        while (true)
+        const int maxAttempts = 8192;
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
         {
             var messageId = Interlocked.Increment(ref _messageIdCounter);
             if (messageId != 0 && _pendingRequests.TryAdd(messageId, out var tcs))
@@ -203,6 +213,8 @@ public sealed class ShaRpcClient : IShaRpcClient
                 return (messageId, tcs);
             }
         }
+
+        throw new ShaRpcException("Unable to reserve a request message id.");
     }
 
     private IConnection EnsureConnected()

@@ -125,7 +125,11 @@ public sealed class ShaRpcServer : IShaRpcServer
                 var connectionTask = HandleConnectionAsync(connection, registry, ct);
                 _connections.TryAdd(connection, connectionTask);
 
-                _ = connectionTask.ContinueWith(_ => _connections.TryRemove(connection, out _), TaskContinuationOptions.ExecuteSynchronously);
+                _ = connectionTask.ContinueWith(
+                    _ => _connections.TryRemove(connection, out _),
+                    CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -146,6 +150,7 @@ public sealed class ShaRpcServer : IShaRpcServer
     {
         var activeRequests = new ConcurrentDictionary<int, CancellationTokenSource>();
         var activeTasks = new ConcurrentDictionary<int, Task>();
+        var concurrency = new SemaphoreSlim(1024, 1024);
 
         try
         {
@@ -158,14 +163,16 @@ public sealed class ShaRpcServer : IShaRpcServer
                     break;
                 }
 
-                ProcessMessage(connection, registry, data, activeRequests, activeTasks, ct);
+                await concurrency.WaitAsync(ct).ConfigureAwait(false);
+                ProcessMessage(connection, registry, data, activeRequests, activeTasks, concurrency, ct);
             }
         }
         catch (OperationCanceledException)
         {
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            RpcDiagnostics.Report("Connection handler failed", ex);
         }
         finally
         {
@@ -176,6 +183,7 @@ public sealed class ShaRpcServer : IShaRpcServer
 
             await WaitForActiveRequestsAsync(activeTasks.Values).ConfigureAwait(false);
 
+            concurrency.Dispose();
             registry.ReleaseAll();
             await connection.DisposeAsync().ConfigureAwait(false);
         }
@@ -187,11 +195,13 @@ public sealed class ShaRpcServer : IShaRpcServer
         Payload data,
         ConcurrentDictionary<int, CancellationTokenSource> activeRequests,
         ConcurrentDictionary<int, Task> activeTasks,
+        SemaphoreSlim concurrency,
         CancellationToken ct)
     {
         if (!MessageFramer.TryReadFrameHeader(data.Memory, out var messageId, out var messageType))
         {
             data.Dispose();
+            concurrency.Release();
             return;
         }
 
@@ -203,6 +213,7 @@ public sealed class ShaRpcServer : IShaRpcServer
             }
 
             data.Dispose();
+            concurrency.Release();
             return;
         }
 
@@ -210,6 +221,7 @@ public sealed class ShaRpcServer : IShaRpcServer
             !MessageFramer.TryReadFrame(data.Memory, out _, out _, out var envelope, out var payload))
         {
             data.Dispose();
+            concurrency.Release();
             return;
         }
 
@@ -218,10 +230,35 @@ public sealed class ShaRpcServer : IShaRpcServer
         {
             request = _serializer.Deserialize<RpcRequest>(envelope);
         }
-        catch
+        catch (Exception ex)
         {
             data.Dispose();
-            throw;
+            concurrency.Release();
+            RpcDiagnostics.Report("Request envelope deserialization failed", ex);
+            try
+            {
+                var errorFrame = MessageFramer.FrameMessage(
+                    _serializer,
+                    messageId,
+                    MessageType.Error,
+                    new RpcResponse
+                    {
+                        MessageId = messageId,
+                        IsSuccess = false,
+                        ErrorMessage = "Protocol error: malformed request envelope.",
+                        ErrorType = RpcErrorTypes.ProtocolError,
+                    },
+                    ReadOnlySpan<byte>.Empty);
+                using (errorFrame)
+                {
+                    _ = connection.SendAsync(errorFrame.Memory, ct);
+                }
+            }
+            catch
+            {
+                // Best-effort error response.
+            }
+            return;
         }
 
         var dispatchCts = new CancellationTokenSource();
@@ -229,6 +266,7 @@ public sealed class ShaRpcServer : IShaRpcServer
         {
             dispatchCts.Dispose();
             data.Dispose();
+            concurrency.Release();
             return;
         }
 
@@ -241,6 +279,7 @@ public sealed class ShaRpcServer : IShaRpcServer
             payload,
             activeRequests,
             activeTasks,
+            concurrency,
             dispatchCts);
         activeTasks[messageId] = task;
         if (task.IsCompleted)
@@ -258,6 +297,7 @@ public sealed class ShaRpcServer : IShaRpcServer
         ReadOnlyMemory<byte> payload,
         ConcurrentDictionary<int, CancellationTokenSource> activeRequests,
         ConcurrentDictionary<int, Task> activeTasks,
+        SemaphoreSlim concurrency,
         CancellationTokenSource requestCts)
     {
         try
@@ -277,14 +317,36 @@ public sealed class ShaRpcServer : IShaRpcServer
         {
             // Remote cancellation or server shutdown; no response frame is sent for cancelled work.
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            // Log error
+            RpcDiagnostics.Report($"Request {request.ServiceName}.{request.MethodName} failed", ex);
+            try
+            {
+                var error = RpcErrors.FromException(ex);
+                using var errorFrame = MessageFramer.FrameMessage(
+                    _serializer,
+                    messageId,
+                    MessageType.Error,
+                    new RpcResponse
+                    {
+                        MessageId = messageId,
+                        IsSuccess = false,
+                        ErrorMessage = error.Message,
+                        ErrorType = error.Type,
+                    },
+                    ReadOnlySpan<byte>.Empty);
+                await connection.SendAsync(errorFrame.Memory, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Best-effort error response.
+            }
         }
         finally
         {
             activeRequests.TryRemove(messageId, out _);
             activeTasks.TryRemove(messageId, out _);
+            concurrency.Release();
             requestCts.Dispose();
         }
     }

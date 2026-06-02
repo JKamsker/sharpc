@@ -9,6 +9,10 @@ namespace ShaRPC.Core;
 public interface IRpcInvoker
 {
     /// <summary>Invokes a method with a request body and a response body.</summary>
+    /// <param name="service">The remote service name.</param>
+    /// <param name="method">The method to invoke.</param>
+    /// <param name="request">The request payload.</param>
+    /// <param name="ct">Cancellation token.</param>
     Task<TResponse> InvokeAsync<TRequest, TResponse>(
         string service,
         string method,
@@ -16,12 +20,19 @@ public interface IRpcInvoker
         CancellationToken ct = default);
 
     /// <summary>Invokes a method with no request body and a response body.</summary>
+    /// <param name="service">The remote service name.</param>
+    /// <param name="method">The method to invoke.</param>
+    /// <param name="ct">Cancellation token.</param>
     Task<TResponse> InvokeAsync<TResponse>(
         string service,
         string method,
         CancellationToken ct = default);
 
     /// <summary>Invokes a method with a request body and no response body.</summary>
+    /// <param name="service">The remote service name.</param>
+    /// <param name="method">The method to invoke.</param>
+    /// <param name="request">The request payload.</param>
+    /// <param name="ct">Cancellation token.</param>
     Task InvokeAsync<TRequest>(
         string service,
         string method,
@@ -29,12 +40,20 @@ public interface IRpcInvoker
         CancellationToken ct = default);
 
     /// <summary>Invokes a method with neither a request nor a response body.</summary>
+    /// <param name="service">The remote service name.</param>
+    /// <param name="method">The method to invoke.</param>
+    /// <param name="ct">Cancellation token.</param>
     Task InvokeAsync(
         string service,
         string method,
         CancellationToken ct = default);
 
     /// <summary>Invokes a method on a specific remote sub-service instance.</summary>
+    /// <param name="service">The remote service name.</param>
+    /// <param name="instanceId">The target instance identifier.</param>
+    /// <param name="method">The method to invoke.</param>
+    /// <param name="request">The request payload.</param>
+    /// <param name="ct">Cancellation token.</param>
     Task<TResponse> InvokeOnInstanceAsync<TRequest, TResponse>(
         string service,
         string instanceId,
@@ -43,6 +62,10 @@ public interface IRpcInvoker
         CancellationToken ct = default);
 
     /// <summary>Invokes an instance-scoped method with no request body and a response body.</summary>
+    /// <param name="service">The remote service name.</param>
+    /// <param name="instanceId">The target instance identifier.</param>
+    /// <param name="method">The method to invoke.</param>
+    /// <param name="ct">Cancellation token.</param>
     Task<TResponse> InvokeOnInstanceAsync<TResponse>(
         string service,
         string instanceId,
@@ -50,6 +73,11 @@ public interface IRpcInvoker
         CancellationToken ct = default);
 
     /// <summary>Invokes an instance-scoped method with a request body and no response body.</summary>
+    /// <param name="service">The remote service name.</param>
+    /// <param name="instanceId">The target instance identifier.</param>
+    /// <param name="method">The method to invoke.</param>
+    /// <param name="request">The request payload.</param>
+    /// <param name="ct">Cancellation token.</param>
     Task InvokeOnInstanceAsync<TRequest>(
         string service,
         string instanceId,
@@ -58,6 +86,10 @@ public interface IRpcInvoker
         CancellationToken ct = default);
 
     /// <summary>Invokes an instance-scoped method with neither a request nor a response body.</summary>
+    /// <param name="service">The remote service name.</param>
+    /// <param name="instanceId">The target instance identifier.</param>
+    /// <param name="method">The method to invoke.</param>
+    /// <param name="ct">Cancellation token.</param>
     Task InvokeOnInstanceAsync(
         string service,
         string instanceId,

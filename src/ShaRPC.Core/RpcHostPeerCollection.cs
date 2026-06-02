@@ -30,7 +30,7 @@ internal sealed class RpcHostPeerCollection
                 ((ConcurrentDictionary<Task, byte>)state!).TryRemove(task, out _),
             _cleanupTasks,
             CancellationToken.None,
-            TaskContinuationOptions.ExecuteSynchronously,
+            TaskContinuationOptions.None,
             TaskScheduler.Default);
     }
 

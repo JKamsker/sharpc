@@ -88,7 +88,14 @@ internal sealed class RpcPeerInboundRequestQueue
             {
                 while (_queue.Reader.TryRead(out var inbound))
                 {
-                    await _processAsync(inbound).ConfigureAwait(false);
+                    try
+                    {
+                        await _processAsync(inbound).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        RpcDiagnostics.Report("Inbound request dispatch failed", ex);
+                    }
                 }
             }
         }

@@ -73,5 +73,9 @@ internal sealed class ShaRpcClientReceiveLoop
         {
             _pendingRequests.FailAll(new ShaRpcConnectionException("Connection lost.", ex));
         }
+        finally
+        {
+            _pendingRequests.FailAll(new ShaRpcConnectionException("Connection closed."));
+        }
     }
 }

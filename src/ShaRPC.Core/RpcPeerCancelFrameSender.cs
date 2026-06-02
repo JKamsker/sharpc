@@ -17,17 +17,15 @@ internal sealed class RpcPeerCancelFrameSender
 
     public void TrySend(int messageId)
     {
+        Task task;
         lock (_lock)
         {
             if (_closed || !_slots.Wait(0))
             {
                 return;
             }
-        }
 
-        var task = SendAsync(messageId);
-        lock (_lock)
-        {
+            task = SendAsync(messageId);
             _tasks.Add(task);
         }
 

@@ -245,10 +245,6 @@ public sealed class RpcPeer : IAsyncDisposable, IRpcInvoker
 
     private async Task DisposeCoreAsync(Task? readLoop, CancellationTokenSource? cts)
     {
-        _outbound.FailPending(new ShaRpcConnectionException("Connection closed."));
-
-        await _inbound.StopAsync().ConfigureAwait(false);
-
         if (readLoop is not null)
         {
             try
@@ -261,11 +257,13 @@ public sealed class RpcPeer : IAsyncDisposable, IRpcInvoker
             }
         }
 
+        _outbound.FailPending(new ShaRpcConnectionException("Connection closed."));
+        await _inbound.StopAsync().ConfigureAwait(false);
         await _outbound.StopCancelFramesAsync().ConfigureAwait(false);
 
-        cts?.Dispose();
         _sender.Dispose();
         await _channel.DisposeAsync().ConfigureAwait(false);
+        cts?.Dispose();
     }
 
     private void RaiseProtocolError(
@@ -294,7 +292,7 @@ public sealed class RpcPeer : IAsyncDisposable, IRpcInvoker
     {
         lock (_lifecycleLock)
         {
-            _closed = 1;
+            Volatile.Write(ref _closed, 1);
         }
     }
 

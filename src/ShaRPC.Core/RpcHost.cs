@@ -233,13 +233,13 @@ public sealed class RpcHost : IAsyncDisposable
             {
                 if (ReferenceEquals(_cts, cts))
                 {
+                    _stopTask = null;
+
                     if (completed)
                     {
                         _cts = null;
                         _acceptTask = null;
                     }
-
-                    _stopTask = null;
                 }
             }
         }
@@ -264,8 +264,8 @@ public sealed class RpcHost : IAsyncDisposable
             return;
         }
 
-        peer.Disconnected += OnPeerDisconnected;
         _peers.Add(peer);
+        peer.Disconnected += OnPeerDisconnected;
         peer.Start();
         RpcEventHandlerInvoker.Raise(PeerConnected, this, new RpcPeerEventArgs(peer));
     }
