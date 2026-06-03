@@ -230,8 +230,32 @@ internal static class DispatcherGenerator
                     sb.AppendLine("                        return;");
                     sb.AppendLine("                    }");
                 }
-                sb.AppendLine($"                    var __subId = registry.Register(\"{info.ServiceName}\", __sub);");
-                sb.AppendLine($"                    serializer.Serialize(output, new global::ShaRPC.Core.Protocol.ServiceHandle {{ ServiceName = \"{info.ServiceName}\", InstanceId = __subId }});");
+                sb.AppendLine("                    string __subId;");
+                sb.AppendLine("                    try");
+                sb.AppendLine("                    {");
+                sb.AppendLine($"                        __subId = registry.Register(\"{info.ServiceName}\", __sub);");
+                sb.AppendLine("                    }");
+                sb.AppendLine("                    catch");
+                sb.AppendLine("                    {");
+                sb.AppendLine("                        if (__sub is global::System.IAsyncDisposable __ad)");
+                sb.AppendLine("                        {");
+                sb.AppendLine("                            await __ad.DisposeAsync().ConfigureAwait(false);");
+                sb.AppendLine("                        }");
+                sb.AppendLine("                        else if (__sub is global::System.IDisposable __d)");
+                sb.AppendLine("                        {");
+                sb.AppendLine("                            __d.Dispose();");
+                sb.AppendLine("                        }");
+                sb.AppendLine("                        throw;");
+                sb.AppendLine("                    }");
+                sb.AppendLine("                    try");
+                sb.AppendLine("                    {");
+                sb.AppendLine($"                        serializer.Serialize(output, new global::ShaRPC.Core.Protocol.ServiceHandle {{ ServiceName = \"{info.ServiceName}\", InstanceId = __subId }});");
+                sb.AppendLine("                    }");
+                sb.AppendLine("                    catch");
+                sb.AppendLine("                    {");
+                sb.AppendLine($"                        registry.Release(\"{info.ServiceName}\", __subId);");
+                sb.AppendLine("                        throw;");
+                sb.AppendLine("                    }");
                 sb.AppendLine("                    return;");
                 break;
             }

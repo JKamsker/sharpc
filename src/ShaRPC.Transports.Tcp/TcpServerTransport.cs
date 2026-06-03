@@ -96,7 +96,26 @@ public sealed class TcpServerTransport : IServerTransport
         // DisposeAsync (any thread) reclaim _pendingAccept via Interlocked, so consume it atomically
         // here too — a plain read+null could let both this call and ObservePendingAccept take the same
         // stashed accept, returning a TcpClient that is also disposed at shutdown.
-        var acceptTask = ClaimPendingAccept() ?? listener.AcceptTcpClientAsync();
+        var claimed = ClaimPendingAccept();
+        var acceptTask = claimed ?? listener.AcceptTcpClientAsync();
+
+        // Honour an already-cancelled token before the IsCompleted short-circuit below can return a
+        // completed (e.g. stashed) accept. If the accept came from the stash, re-stash it first so the
+        // in-flight accept (and any socket it completes with) is reclaimed by the shutdown observation
+        // path instead of being leaked, mirroring the cancellation re-stash logic below.
+        if (ct.IsCancellationRequested)
+        {
+            if (claimed is not null)
+            {
+                _ = Interlocked.Exchange(ref _pendingAccept, acceptTask);
+                if (Volatile.Read(ref _started) == 0 || Volatile.Read(ref _disposed) != 0)
+                {
+                    ObservePendingAccept();
+                }
+            }
+
+            throw new OperationCanceledException(ct);
+        }
 
         if (ct.CanBeCanceled && !acceptTask.IsCompleted)
         {

@@ -24,9 +24,13 @@ namespace ShaRPC.Tests.Cov;
 /// overlap. The fix (leave <c>_stopTask</c> intact in the catch when a stop is in flight) makes
 /// this test green.
 ///
-/// Deterministic: a gated mock transport blocks inside StartAsync (released only by cancellation)
-/// and blocks inside StopAsync, so the exact interleaving is forced via TCS barriers — no sleeps,
-/// all waits bounded.
+/// Determinism without deadlock: the mock transport's <c>StopAsync</c> parks on a gate that the
+/// TEST releases (never <c>DisposeAsync</c>). The test invokes <c>DisposeAsync</c> while the stop
+/// is still parked and only releases the stop afterwards. On the unfixed code
+/// <c>host.DisposeAsync()</c> completes synchronously (its <c>StopAsync()</c> returns
+/// <c>Task.CompletedTask</c>), so <c>_listener.DisposeAsync</c> runs while the stop is in flight
+/// (overlap recorded). On the fixed code <c>host.DisposeAsync()</c> suspends awaiting the in-flight
+/// stop and only disposes the transport after the test releases it — no overlap.
 /// </summary>
 public sealed class Round1_RpcHostStartStopRaceTests
 {
@@ -45,7 +49,7 @@ public sealed class Round1_RpcHostStartStopRaceTests
         await transport.StartEntered.WaitAsync(Timeout);
 
         // 2) StopAsync installs StopCoreAsync, which cancels cts (unblocking StartAsync into its
-        //    throw path) and then parks inside _listener.StopAsync awaiting release.
+        //    throw path) and then parks inside _listener.StopAsync awaiting the test's release.
         var stopTask = host.StopAsync();
 
         // 3) The cancelled StartAsync surfaces an OperationCanceledException via its catch block,
@@ -57,14 +61,21 @@ public sealed class Round1_RpcHostStartStopRaceTests
         //    overlap with DisposeAsync would be observable.
         await transport.StopEntered.WaitAsync(Timeout);
 
-        // 5) Dispose while the stop is still in flight. The transport records whether
-        //    DisposeAsync was entered while a StopAsync was still running, then releases the stop
-        //    so everything quiesces (bounded).
-        await host.DisposeAsync().AsTask().WaitAsync(Timeout);
+        // 5) Begin DisposeAsync while the stop is still parked. Do NOT await it yet.
+        //    - Unfixed: host.DisposeAsync()'s StopAsync() sees _cts == null and returns synchronously,
+        //      so _listener.DisposeAsync runs NOW (while the stop is in flight) -> overlap recorded.
+        //    - Fixed: host.DisposeAsync()'s StopAsync() returns the in-flight _stopTask and suspends,
+        //      so _listener.DisposeAsync has NOT run yet.
+        var disposeTask = host.DisposeAsync();
 
-        // The orphaned stop must have finished without DisposeAsync overlapping it.
+        // 6) Release the parked stop. On the fixed path this lets the in-flight StopCoreAsync (and the
+        //    DisposeAsync awaiting it) complete; on the unfixed path it just lets the orphan finish.
+        transport.ReleaseStop();
+
+        await disposeTask.AsTask().WaitAsync(Timeout);
         await stopTask.WaitAsync(Timeout);
 
+        // The transport's StopAsync and DisposeAsync must never have overlapped.
         Assert.False(
             transport.DisposeOverlappedStop,
             "DisposeAsync must wait for the in-flight StopAsync to finish before disposing the transport");
@@ -73,7 +84,7 @@ public sealed class Round1_RpcHostStartStopRaceTests
     /// <summary>
     /// Mock transport that:
     ///  - blocks inside StartAsync until its token is cancelled (then throws OCE),
-    ///  - blocks inside StopAsync until DisposeAsync releases it (so an overlap is observable),
+    ///  - blocks inside StopAsync until the test calls <see cref="ReleaseStop"/>,
     ///  - records whether DisposeAsync was entered while a StopAsync was still in flight.
     /// </summary>
     private sealed class GatedStartStopServerTransport : IServerTransport
@@ -92,6 +103,9 @@ public sealed class Round1_RpcHostStartStopRaceTests
         public Task StopEntered => _stopEntered.Task;
 
         public bool DisposeOverlappedStop => Volatile.Read(ref _disposeOverlappedStop) != 0;
+
+        /// <summary>Releases a parked <see cref="StopAsync"/>. Called only by the test.</summary>
+        public void ReleaseStop() => _allowStopComplete.TrySetResult(true);
 
         public async Task StartAsync(CancellationToken ct = default)
         {
@@ -118,7 +132,8 @@ public sealed class Round1_RpcHostStartStopRaceTests
             _stopEntered.TrySetResult(true);
             try
             {
-                // Park here so DisposeAsync can be observed overlapping the stop on the unfixed code.
+                // Park here until the test releases the stop, so an overlapping DisposeAsync on the
+                // unfixed code is observable. The test (never DisposeAsync) releases this gate.
                 await _allowStopComplete.Task.ConfigureAwait(false);
             }
             finally
@@ -135,8 +150,6 @@ public sealed class Round1_RpcHostStartStopRaceTests
                 Interlocked.Exchange(ref _disposeOverlappedStop, 1);
             }
 
-            // Release the parked stop so the orphaned StopCoreAsync can finish — keeps the test bounded.
-            _allowStopComplete.TrySetResult(true);
             return default;
         }
     }

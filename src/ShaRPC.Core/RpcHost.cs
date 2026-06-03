@@ -104,10 +104,17 @@ public sealed class RpcHost : IAsyncDisposable
             lock (_lifecycleLock)
             {
                 disposed = Volatile.Read(ref _disposed) != 0;
-                if (ReferenceEquals(_cts, cts))
+
+                // Only reclaim lifecycle state if no StopCoreAsync is in flight. A concurrent
+                // StopAsync may have already installed _stopTask (and cancelling its cts is what
+                // interrupted this start); nulling _cts/_stopTask or disposing cts here would orphan
+                // that running stop — its finally would then skip cleanup (ReferenceEquals(_cts, cts)
+                // is false) and a later DisposeAsync would see _cts == null, return immediately, and
+                // dispose the transport while the orphan is still inside _listener.StopAsync. Leaving
+                // the state intact lets DisposeAsync's StopAsync observe and await the in-flight stop.
+                if (ReferenceEquals(_cts, cts) && _stopTask is null)
                 {
                     _cts = null;
-                    _stopTask = null;
                     cts.Dispose();
                 }
 

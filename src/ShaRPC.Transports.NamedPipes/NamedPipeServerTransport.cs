@@ -9,6 +9,13 @@ namespace ShaRPC.Transports.NamedPipes;
 /// </summary>
 public sealed class NamedPipeServerTransport : IServerTransport
 {
+    /// <summary>
+    /// Default inter-read idle timeout applied to accepted connections' in-progress frame body reads
+    /// (30 seconds). Mirrors <c>TcpConnection.DefaultFrameReadIdleTimeout</c> so accepted pipe
+    /// connections get the same finite slow-loris defense the TCP transport applies by default.
+    /// </summary>
+    public static readonly TimeSpan DefaultFrameReadIdleTimeout = TimeSpan.FromSeconds(30);
+
     private readonly object _sync = new();
     private readonly string _pipeName;
     private readonly int _maxAllowedServerInstances;
@@ -27,6 +34,13 @@ public sealed class NamedPipeServerTransport : IServerTransport
         _maxAllowedServerInstances = ValidateMaxAllowedServerInstances(maxAllowedServerInstances);
         _maxMessageSize = ValidateMaxMessageSize(maxMessageSize);
     }
+
+    /// <summary>
+    /// Inter-read idle timeout applied to accepted connections' in-progress frame body reads (slow-loris
+    /// defense). <see langword="null"/> uses <see cref="DefaultFrameReadIdleTimeout"/>;
+    /// <see cref="Timeout.InfiniteTimeSpan"/> disables it. See <see cref="StreamConnection"/>.
+    /// </summary>
+    public TimeSpan? FrameReadIdleTimeout { get; init; }
 
     public Task StartAsync(CancellationToken ct = default)
     {
@@ -90,7 +104,22 @@ public sealed class NamedPipeServerTransport : IServerTransport
                     await connectedHook().ConfigureAwait(false);
                 }
 
-                return new StreamConnection(stream, $"pipe://./{_pipeName}", ownsStream: true, _maxMessageSize);
+                // Re-check after the wait (and the test seam) returns: a StopAsync that raced in here
+                // disposed _pendingStream and cancelled the linked token, so constructing a channel now
+                // would hand back a connection over an already-disposed pipe. Surface the stop as
+                // cancellation instead.
+                if (linkedCts.IsCancellationRequested || !stream.IsConnected)
+                {
+                    stream.Dispose();
+                    throw new OperationCanceledException(linkedCts.Token);
+                }
+
+                return new StreamConnection(
+                    stream,
+                    $"pipe://./{_pipeName}",
+                    ownsStream: true,
+                    _maxMessageSize,
+                    FrameReadIdleTimeout ?? DefaultFrameReadIdleTimeout);
             }
         }
         catch
