@@ -11,15 +11,15 @@ namespace ShaRPC.Generated
     {
 
         /// <summary>
-        /// Creates a proxy for IMix.
+        /// Provides a IMix implementation for the other peer to call.
         /// </summary>
-        public static global::Snap.Mixed.IMix CreateMixProxy(this global::ShaRPC.Core.Client.IShaRpcClient client)
-            => new global::Snap.Mixed.MixProxy(client);
+        public static global::ShaRPC.Core.RpcPeer ProvideMix(this global::ShaRPC.Core.RpcPeer peer, global::Snap.Mixed.IMix implementation)
+            => peer.Provide((global::ShaRPC.Core.Server.IServiceDispatcher)new global::Snap.Mixed.MixDispatcher(implementation));
 
         /// <summary>
-        /// Registers IMix with the server.
+        /// Gets a proxy to call IMix on the other peer.
         /// </summary>
-        public static global::ShaRPC.Core.Server.ShaRpcServerBuilder AddMix(this global::ShaRPC.Core.Server.ShaRpcServerBuilder builder, global::Snap.Mixed.IMix implementation)
-            => builder.AddDispatcher(new global::Snap.Mixed.MixDispatcher(implementation));
+        public static global::Snap.Mixed.IMix GetMix(this global::ShaRPC.Core.RpcPeer peer)
+            => new global::Snap.Mixed.MixProxy(peer);
     }
 }

@@ -34,99 +34,87 @@ Task<Result> MyMethodAsync(Request req, CancellationToken ct = default);
 
 ---
 
-### Client
+### Caller (single connection)
 
-#### `IShaRpcClient`
-Interface for the RPC client.
-
-```csharp
-public interface IShaRpcClient : IAsyncDisposable
-{
-    Task ConnectAsync(CancellationToken ct = default);
-    Task<TResponse> InvokeAsync<TRequest, TResponse>(string service, string method, TRequest request, CancellationToken ct = default);
-    Task<TResponse> InvokeAsync<TResponse>(string service, string method, CancellationToken ct = default);
-    Task InvokeAsync<TRequest>(string service, string method, TRequest request, CancellationToken ct = default);
-    bool IsConnected { get; }
-}
-```
-
-#### `ShaRpcClient`
-Default implementation of `IShaRpcClient`.
+A caller is just an `RpcPeer` created over an already-connected channel. There is no separate
+client type or builder: connect a transport, wrap its connection in a peer, get a generated
+proxy, and call.
 
 ```csharp
-public ShaRpcClient(ITransport transport, ISerializer serializer, TimeSpan? timeout = null)
+using ShaRPC.Core;
+using ShaRPC.Generated;            // generated Provide.../Get... extensions
+using ShaRPC.Serializers.MessagePack;
+using ShaRPC.Transports.Tcp;
+
+var transport = new TcpTransport("127.0.0.1", 5000);
+await transport.ConnectAsync();
+
+await using var peer = RpcPeer
+    .Over(transport.Connection!, new MessagePackRpcSerializer(),
+          new RpcPeerOptions { RejectInboundCalls = true })   // get-only intent
+    .Start();
+
+var svc = peer.GetMyService();
+var result = await svc.DoAsync(/* ... */);
 ```
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `transport` | `ITransport` | Transport for network communication |
-| `serializer` | `ISerializer` | Serializer for message encoding |
-| `timeout` | `TimeSpan?` | Request timeout (default: 30 seconds) |
+Setting `RpcPeerOptions.RejectInboundCalls = true` makes the caller's get-only intent explicit:
+the other side receives an explicit "this peer does not accept inbound calls" error rather than a
+"service not found" error. It is not an authentication or authorization boundary.
 
-#### `ShaRpcClientBuilder`
-Fluent builder for creating clients.
+#### `RpcPeer`
+Symmetric endpoint over one duplex `IRpcChannel`. It can provide local services and create
+generated proxies for services provided by the remote side. See the [Peer](#peer) section below
+for the full member list.
 
-```csharp
-var client = new ShaRpcClientBuilder()
-    .UseTransport(transport)
-    .UseSerializer(serializer)
-    .WithTimeout(TimeSpan.FromSeconds(10))
-    .Build();
-```
-
-| Method | Description |
-|--------|-------------|
-| `UseTransport(ITransport)` | Sets the transport |
-| `UseSerializer(ISerializer)` | Sets the serializer |
-| `WithTimeout(TimeSpan)` | Sets default request timeout |
-| `Build()` | Creates the client instance |
+| Factory / member | Description |
+|------------------|-------------|
+| `RpcPeer.Over(IRpcChannel, ISerializer, RpcPeerOptions?)` | Creates a peer over the channel |
+| `Provide<TService>(TService)` / `Provide(IServiceDispatcher)` | Registers an inbound service (before `Start`) |
+| `Get<TService>()` | Creates a generated proxy for a remote service |
+| `Start()` | Begins the read loop (idempotent; invoking a method also starts it) |
+| `IsConnected` | Whether the underlying channel is still connected |
+| `CloseAsync()` / `DisposeAsync()` | Idempotently disposes the peer and underlying channel |
 
 ---
 
-### Server
+### Host (accepting many connections)
 
-#### `IShaRpcServer`
-Interface for the RPC server.
-
-```csharp
-public interface IShaRpcServer : IAsyncDisposable
-{
-    Task StartAsync(CancellationToken ct = default);
-    Task StopAsync(CancellationToken ct = default);
-}
-```
-
-#### `ShaRpcServer`
-Default implementation of `IShaRpcServer`.
+#### `RpcHost`
+Accepts connections from a listener and turns each one into an `RpcPeer`. Because each accepted
+connection is a full peer, the host can both provide services to and call back into the peers
+that connect to it.
 
 ```csharp
-public ShaRpcServer(IServerTransport transport, ISerializer serializer)
+using ShaRPC.Core;
+using ShaRPC.Generated;
+using ShaRPC.Serializers.MessagePack;
+using ShaRPC.Transports.Tcp;
+
+await using var host = RpcHost
+    .Listen(new TcpServerTransport(5000), new MessagePackRpcSerializer())
+    .ForEachPeer(peer => peer.ProvideMyService(new MyService()));
+
+host.PeerConnected += (_, args) => Console.WriteLine($"connected: {args.Peer.RemoteEndpoint}");
+
+await host.StartAsync();
+// ...
+await host.StopAsync();   // DisposeAsync also stops the host and closes every accepted peer
 ```
 
-| Method | Description |
+| Member | Description |
 |--------|-------------|
-| `RegisterDispatcher(IServiceDispatcher)` | Registers a service dispatcher |
-| `StartAsync(CancellationToken)` | Starts accepting connections |
-| `StopAsync(CancellationToken)` | Stops the server gracefully |
+| `RpcHost.Listen(IServerTransport, ISerializer, RpcPeerOptions?)` | Creates a host bound to a listener |
+| `ForEachPeer(Action<RpcPeer>)` | Configures every accepted peer before its read loop starts (call `Provide.../Get...` here); can be chained |
+| `StartAsync(CancellationToken)` | Starts the accept loop |
+| `StopAsync(CancellationToken)` | Stops accepting, closes the listener, and closes every accepted peer |
+| `DisposeAsync()` | Stops the host (if running) and disposes the listener |
+| `PeerConnected` | Raised after a connection is accepted and configured (`RpcPeerEventArgs.Peer`) |
+| `PeerDisconnected` | Raised when an accepted peer's read loop ends (`RpcPeerEventArgs.Peer`) |
+| `AcceptError` | Raised when the accept loop catches a non-cancellation exception (`RpcHostErrorEventArgs`) |
 
-#### `ShaRpcServerBuilder`
-Fluent builder for creating servers.
-
-```csharp
-var server = new ShaRpcServerBuilder()
-    .UseTransport(transport)
-    .UseSerializer(serializer)
-    .AddDispatcher(dispatcher)
-    .Build();
-```
-
-| Method | Description |
-|--------|-------------|
-| `UseTransport(IServerTransport)` | Sets the server transport |
-| `UseSerializer(ISerializer)` | Sets the serializer |
-| `AddDispatcher(IServiceDispatcher)` | Registers a dispatcher |
-| `AddService<TService, TDispatcher>(TService)` | Registers with implementation |
-| `Build(IServiceProvider?)` | Creates the server instance |
+Services provided through `ForEachPeer` are callable by any accepted peer. ShaRPC does not add
+authentication or authorization; enforce access control at the transport or application layer.
 
 #### `IServiceDispatcher`
 Interface for service dispatchers (generated).
@@ -149,33 +137,81 @@ public interface IServiceDispatcher
 
 ### Peer
 
-#### `ShaRpcPeer`
-Bidirectional endpoint over one duplex `IConnection`. One peer can serve local dispatchers and create generated proxies for the remote side over the same connection.
-
-```csharp
-var peer = await ShaRpcPeer.StartAsync(
-    connection,
-    serializer,
-    builder => builder.AddDispatcher(ShaRpcGenerated.CreateDispatcher<IMyService>(implementation)),
-    new ShaRpcPeerOptions { RequestTimeout = TimeSpan.FromSeconds(10) });
-
-var remote = peer.CreateProxy<IRemoteService>();
-```
+#### `RpcPeer`
+Symmetric endpoint over one duplex `IRpcChannel`. It can provide local services and create
+generated proxies for services provided by the remote side.
 
 | Member | Description |
 |--------|-------------|
-| `CreateProxy<TService>()` / `GetProxy<TService>()` | Creates a generated proxy for the remote peer |
-| `RegisterDispatcher(IServiceDispatcher)` | Registers an inbound dispatcher |
-| `ReadError` | Raised when the shared read loop faults |
-| `Disconnected` | Raised when the remote connection closes |
-| `ConnectionClosed` | Raised when the shared read loop ends, with endpoint and exception details |
-| `FrameDropped` | Raised when a bounded duplex queue drops or rejects a routed frame |
-| `CloseAsync()` / `DisposeAsync()` | Idempotently closes the peer and underlying connection |
+| `RpcPeer.Over(IRpcChannel, ISerializer, RpcPeerOptions?)` | Creates a peer over the channel; call `Start()` (or invoke a method) to begin the read loop |
+| `Provide<TService>(TService)` / `Provide(IServiceDispatcher)` | Registers an inbound service (must be called before the peer starts) |
+| `Get<TService>()` | Creates a generated proxy for a remote service |
+| `Start()` | Begins the read loop; idempotent and chainable |
+| `IsConnected` / `RemoteEndpoint` | Channel connection state and remote endpoint string |
+| `Disconnected` | Raised when a remote close or read error ends the read loop; local close/dispose does not raise it. Handlers run on the teardown path and should not block |
+| `ReadError` | Raised when the read loop faults |
+| `ProtocolError` | Raised when a malformed or unsupported protocol frame is observed |
+| `DispatchError` | Raised when inbound request dispatch or response sending fails after a request was accepted |
+| `CloseAsync()` / `DisposeAsync()` | Idempotently disposes the peer and underlying connection; closed peers cannot be restarted |
 
-`ShaRpcPeerOptions.InboundQueueCapacity` and `QueueFullMode` can bound the internal request/response queues used by the duplex splitter.
-Client-side cancellation sends a ShaRPC cancel frame for the in-flight request. The server
-continues reading the connection while dispatch runs and cancels the matching dispatcher token
-when that frame arrives.
+#### Bidirectional usage
+
+Both sides of a connection are `RpcPeer` instances over one duplex `IRpcChannel`. Each side may
+`Provide` services and `Get` proxies, so calls flow in both directions over the same connection.
+
+```csharp
+// Generated Provide.../Get... extension method names drop the leading "I" of the interface
+// (IChatRoom -> ProvideChatRoom / GetChatRoom).
+
+// Side A provides a chat room and can call back into B.
+await using var a = RpcPeer
+    .Over(channelA, serializer)
+    .ProvideChatRoom(new ChatRoom())
+    .Start();
+var participant = a.GetChatParticipant();   // A calls the connecting peer
+
+// Side B provides the participant callback and calls the room.
+await using var b = RpcPeer
+    .Over(channelB, serializer)
+    .ProvideChatParticipant(new ChatParticipant())
+    .Start();
+var room = b.GetChatRoom();                 // B calls A
+```
+
+On a host, the per-connection peer is configured in `RpcHost.ForEachPeer`; obtain the peer from
+`PeerConnected` (`args.Peer`) to call back into a connecting peer over the same connection.
+
+Cancelling an in-flight outbound call sends a ShaRPC cancel frame for that request. The receiving
+peer continues reading the connection while dispatch runs and cancels the matching dispatcher
+token when that frame arrives.
+
+#### `RpcPeerOptions`
+Options for both `RpcPeer` and `RpcHost`.
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `RequestTimeout` | `TimeSpan` | 30s | Per-call timeout for proxies. Use `Timeout.InfiniteTimeSpan` to disable |
+| `ServiceProvider` | `IServiceProvider?` | `null` | Resolves dependencies for dispatcher factories and `Provide<TService>()` |
+| `RejectInboundCalls` | `bool` | `false` | Answers inbound requests with an explicit "does not accept inbound calls" error; makes get-only intent explicit. Not an auth boundary |
+| `InboundQueueCapacity` | `int?` | 1024 | Max queued inbound requests (bounded read-side backpressure). `null` dispatches immediately and does not cap concurrent dispatch work — trusted/bounded transports only |
+| `MaxConcurrentInboundDispatch` | `int` | 1 | Max inbound requests dispatched concurrently when `InboundQueueCapacity` is set. Default `1` dispatches serially per connection; raise it for bounded-concurrent per-connection dispatch. Ignored when `InboundQueueCapacity` is `null` |
+| `MaxInboundBytes` | `long?` | 64 MiB | Max total bytes of in-flight inbound request frames when `InboundQueueCapacity` is set. Caps peak memory independent of frame count; `null` disables. An oversized frame is still admitted when nothing else is in flight, so one large request never deadlocks. Ignored when `InboundQueueCapacity` is `null` |
+| `MaxPendingRequests` | `int` | 4096 | Max concurrent outbound calls awaiting responses |
+| `QueueFullMode` | `ShaRpcQueueFullMode` | `Wait` | Policy when `InboundQueueCapacity` is set and the request queue is full (`Wait` applies backpressure; `DropIncoming` rejects) |
+
+The TCP transport additionally enforces a per-frame read idle timeout (`TcpConnection`, default 30s;
+`Timeout.InfiniteTimeSpan` disables), set via `TcpServerTransport.FrameReadIdleTimeout` /
+`TcpTransport.FrameReadIdleTimeout`. It tears down a connection whose *in-progress* frame read stalls
+(a slow-loris peer that declares a large frame then trickles or sends nothing), but never times out a
+connection idly awaiting its next request.
+
+`RejectInboundCalls` is not an authentication or authorization boundary. Any connected peer can
+still send request frames; secure transports or application-level checks should enforce trust.
+
+Setting `InboundQueueCapacity` to `null` dispatches inbound peer requests immediately and does not
+cap concurrent dispatcher work; use that only with trusted peers or externally bounded transports.
+In `Wait` mode, queued requests are bounded and read-side backpressure applies instead of retaining
+unbounded request frames.
 
 ---
 
@@ -188,7 +224,7 @@ Client-side transport interface.
 public interface ITransport : IAsyncDisposable
 {
     Task ConnectAsync(CancellationToken ct = default);
-    IConnection? Connection { get; }
+    IRpcChannel? Connection { get; }
     bool IsConnected { get; }
 }
 ```
@@ -200,16 +236,17 @@ Server-side transport interface.
 public interface IServerTransport : IAsyncDisposable
 {
     Task StartAsync(CancellationToken ct = default);
-    Task<IConnection> AcceptAsync(CancellationToken ct = default);
+    Task<IRpcChannel> AcceptAsync(CancellationToken ct = default);
     Task StopAsync(CancellationToken ct = default);
 }
 ```
 
-#### `IConnection`
-Represents an active connection.
+#### `IRpcChannel`
+The duplex, framed channel an `RpcPeer` runs on. Responses flow back over the same channel, so it
+is always bidirectional even when the call direction is one-way.
 
 ```csharp
-public interface IConnection : IAsyncDisposable
+public interface IRpcChannel : IAsyncDisposable
 {
     Task SendAsync(ReadOnlyMemory<byte> data, CancellationToken ct = default);
     Task<Payload> ReceiveAsync(CancellationToken ct = default);
@@ -218,14 +255,17 @@ public interface IConnection : IAsyncDisposable
 }
 ```
 
+A `Payload` with `Length` of 0 returned from `ReceiveAsync` signals the channel was closed. The
+caller owns the returned `Payload` and must dispose it. Implement `IRpcChannel` to add a custom
+transport.
+
 #### Built-in single-connection primitives
 
 | Type | Description |
 |------|-------------|
-| `StreamConnection` | `IConnection` over any duplex `Stream`, including `PipeStream`; reads and writes complete ShaRPC length-prefixed frames |
-| `SingleConnectionTransport` | Client `ITransport` adapter for an already-established `IConnection` |
-| `SingleConnectionServerTransport` | Server `IServerTransport` adapter that accepts one already-established `IConnection` |
-| `DuplexConnectionSplitter` | Routes request/cancel frames to a server-facing connection and response/error frames to a client-facing connection |
+| `StreamConnection` | `IRpcChannel` over any duplex `Stream`, including `PipeStream`; reads and writes complete ShaRPC length-prefixed frames |
+| `SingleConnectionTransport` | Client `ITransport` adapter for an already-established `IRpcChannel` |
+| `SingleConnectionServerTransport` | Server `IServerTransport` adapter that accepts one already-established `IRpcChannel` |
 
 ---
 
@@ -254,16 +294,19 @@ Both transports wrap `NamedPipeClientStream`/`NamedPipeServerStream` in the core
 and clean EOF behavior as any other stream-backed connection.
 
 ```csharp
-var server = new ShaRpcServerBuilder()
-    .UseTransport(new NamedPipeServerTransport("my-plugin-pipe"))
-    .UseSerializer(new MessagePackRpcSerializer())
-    .AddMyService(new MyService())
-    .Build();
+// Host side
+await using var host = RpcHost
+    .Listen(new NamedPipeServerTransport("my-plugin-pipe"), new MessagePackRpcSerializer())
+    .ForEachPeer(peer => peer.ProvideMyService(new MyService()));
+await host.StartAsync();
 
-var client = new ShaRpcClientBuilder()
-    .UseTransport(new NamedPipeClientTransport("my-plugin-pipe"))
-    .UseSerializer(new MessagePackRpcSerializer())
-    .Build();
+// Caller side
+var transport = new NamedPipeClientTransport("my-plugin-pipe");
+await transport.ConnectAsync();
+await using var peer = RpcPeer
+    .Over(transport.Connection!, new MessagePackRpcSerializer())
+    .Start();
+var svc = peer.GetMyService();
 ```
 
 ---
@@ -289,7 +332,7 @@ public interface ISerializer
 | Exception | Description |
 |-----------|-------------|
 | `ShaRpcException` | Base exception for all ShaRPC errors |
-| `ShaRpcRemoteException` | Server-side exception (includes `RemoteExceptionType`) |
+| `ShaRpcRemoteException` | Remote error (includes `RemoteExceptionType`); non-`ShaRpcException` server failures are sanitized |
 | `ShaRpcConnectionException` | Connection lost or failed |
 | `ShaRpcTimeoutException` | Request timed out |
 | `ShaRpcNotFoundException` | Service or method not found |
@@ -324,6 +367,9 @@ public TcpServerTransport(string address, int port)
 | `port` | `int` | Port to listen on |
 | `address` | `IPAddress`/`string` | Interface to bind (default: `IPAddress.Any`) |
 
+`TcpServerTransport.LocalEndpoint` exposes the bound endpoint after `StartAsync` succeeds,
+including the OS-assigned port when the transport is created with port `0`.
+
 ---
 
 ## MessagePack Serializer: `ShaRPC.Serializers.MessagePack`
@@ -357,23 +403,24 @@ The default options include a formatter for `ReadOnlyMemory<byte>` so binary DTO
 
 ## Generated Extensions
 
-For each `[ShaRpcService]` interface `IFooService`, the generator creates:
+For each `[ShaRpcService]` interface `IFooService`, the generator creates `RpcPeer` extension
+methods. The method suffix drops the leading `I` of the interface name
+(`IFooService` -> `ProvideFooService` / `GetFooService`):
 
 ```csharp
 // In namespace ShaRPC.Generated
 public static class ShaRpcGeneratedExtensions
 {
-    // Client extension
-    public static IFooService CreateFooServiceProxy(this IShaRpcClient client);
+    // Provide a local implementation for the other peer to call (before the peer starts).
+    public static RpcPeer ProvideFooService(this RpcPeer peer, IFooService implementation);
 
-    // Server builder extension
-    public static ShaRpcServerBuilder AddFooService(
-        this ShaRpcServerBuilder builder,
-        IFooService implementation);
+    // Get a proxy to call IFooService on the other peer.
+    public static IFooService GetFooService(this RpcPeer peer);
 }
 ```
 
-The generator also emits a public factory class and registers factories with the runtime registry:
+The generator also emits a public factory class and registers factories with the runtime registry.
+The proxy factories take an `IRpcInvoker` (an `RpcPeer` implements it), so pass the peer directly:
 
 ```csharp
 // In namespace ShaRPC.Generated
@@ -382,12 +429,16 @@ public static class ShaRpcGenerated
     public static IReadOnlyList<ShaRpcGeneratedService> Services { get; }
     public static void RegisterServices(IShaRpcServiceRegistrationSink sink);
     public static void RegisterGeneratedServices(IShaRpcGeneratedServiceRegistrationSink sink);
-    public static TService CreateProxy<TService>(IShaRpcClient client) where TService : class;
-    public static object CreateProxy(Type serviceInterface, IShaRpcClient client);
+    public static TService CreateProxy<TService>(IRpcInvoker invoker) where TService : class;
+    public static object CreateProxy(Type serviceInterface, IRpcInvoker invoker);
     public static IServiceDispatcher CreateDispatcher<TService>(TService implementation) where TService : class;
     public static IServiceDispatcher CreateDispatcher(Type serviceInterface, object implementation);
 }
 ```
+
+`CreateDispatcher<TService>(impl)` produces an `IServiceDispatcher` you register with
+`peer.Provide(dispatcher)`; `CreateProxy<TService>(invoker)` produces a proxy bound to the peer
+(equivalent to `peer.Get<TService>()` and the generated `Get...` extension).
 
 `ShaRpcGenerated.Services` is backed by a generated static array of `ShaRpcGeneratedService`
 records. Each descriptor includes `ServiceType`, `ProxyType`, `DispatcherType`, and

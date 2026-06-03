@@ -12,7 +12,8 @@ public sealed class TcpServerTransport : IServerTransport
     private readonly IPAddress _address;
     private readonly int _port;
     private TcpListener? _listener;
-    private bool _disposed;
+    private Task<TcpClient>? _pendingAccept;
+    private int _disposed;
     private bool _started;
 
     public TcpServerTransport(int port) : this(IPAddress.Any, port)
@@ -31,9 +32,21 @@ public sealed class TcpServerTransport : IServerTransport
         _port = port;
     }
 
+    /// <summary>
+    /// Gets the bound endpoint after <see cref="StartAsync"/> succeeds.
+    /// </summary>
+    public IPEndPoint? LocalEndpoint => _listener?.LocalEndpoint as IPEndPoint;
+
+    /// <summary>
+    /// Inter-read idle timeout applied to accepted connections' in-progress frame reads (slow-loris
+    /// defense). <see langword="null"/> uses <see cref="TcpConnection.DefaultFrameReadIdleTimeout"/>;
+    /// <see cref="Timeout.InfiniteTimeSpan"/> disables it. See <see cref="TcpConnection"/>.
+    /// </summary>
+    public TimeSpan? FrameReadIdleTimeout { get; init; }
+
     public Task StartAsync(CancellationToken ct = default)
     {
-        if (_disposed)
+        if (Volatile.Read(ref _disposed) != 0)
         {
             throw new ObjectDisposedException(nameof(TcpServerTransport));
         }
@@ -50,9 +63,9 @@ public sealed class TcpServerTransport : IServerTransport
         return Task.CompletedTask;
     }
 
-    public async Task<IConnection> AcceptAsync(CancellationToken ct = default)
+    public async Task<IRpcChannel> AcceptAsync(CancellationToken ct = default)
     {
-        if (_disposed)
+        if (Volatile.Read(ref _disposed) != 0)
         {
             throw new ObjectDisposedException(nameof(TcpServerTransport));
         }
@@ -62,35 +75,90 @@ public sealed class TcpServerTransport : IServerTransport
             throw new InvalidOperationException("Server not started.");
         }
 
-        // Wrap AcceptTcpClientAsync with cancellation support for .NET Standard 2.1
-        var acceptTask = _listener.AcceptTcpClientAsync();
+        // netstandard2.1 has no CancellationToken overload for AcceptTcpClientAsync, and Stop()-ing
+        // the listener to unblock would tear it down for every future accept. Instead race the accept
+        // against the token; on cancellation keep the in-flight accept to hand back on the next call
+        // so the listener stays alive. AcceptAsync is driven by a single accept loop, so there is no
+        // concurrent caller racing _pendingAccept.
+        var acceptTask = _pendingAccept ?? _listener.AcceptTcpClientAsync();
+        _pendingAccept = null;
 
-        while (!acceptTask.IsCompleted)
+        if (ct.CanBeCanceled && !acceptTask.IsCompleted)
         {
-            ct.ThrowIfCancellationRequested();
-            await Task.WhenAny(acceptTask, Task.Delay(100, ct));
+            var cancelled = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var registration = ct.Register(
+                static state => ((TaskCompletionSource<bool>)state!).TrySetResult(true),
+                cancelled);
+
+            var completed = await Task.WhenAny(acceptTask, cancelled.Task).ConfigureAwait(false);
+            if (completed != acceptTask)
+            {
+                _pendingAccept = acceptTask;
+                throw new OperationCanceledException(ct);
+            }
         }
 
-        var client = await acceptTask;
-        return new TcpConnection(client);
+        TcpClient client;
+        try
+        {
+            client = await acceptTask.ConfigureAwait(false);
+        }
+        catch (Exception) when (ct.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(ct);
+        }
+
+        return new TcpConnection(client, FrameReadIdleTimeout);
     }
 
     public Task StopAsync(CancellationToken ct = default)
     {
         _listener?.Stop();
+        ObservePendingAccept();
         return Task.CompletedTask;
     }
 
     public ValueTask DisposeAsync()
     {
-        if (_disposed)
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
         {
             return default;
         }
 
-        _disposed = true;
         _listener?.Stop();
+        ObservePendingAccept();
 
         return default;
+    }
+
+    private void ObservePendingAccept()
+    {
+        // Reclaim an in-flight accept we stashed on cancellation. Stopping the listener usually
+        // faults it (observe the exception), but a client can connect in the window between the
+        // cancellation and Stop(), completing the accept with a live TcpClient — close that socket
+        // so it is not leaked at shutdown.
+        var pending = Interlocked.Exchange(ref _pendingAccept, null);
+        _ = pending?.ContinueWith(
+            static t =>
+            {
+                if (t.IsFaulted)
+                {
+                    _ = t.Exception;
+                }
+                else if (t.Status == TaskStatus.RanToCompletion)
+                {
+                    try
+                    {
+                        t.Result?.Dispose();
+                    }
+                    catch
+                    {
+                        // Best-effort close of a socket accepted during shutdown.
+                    }
+                }
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 }

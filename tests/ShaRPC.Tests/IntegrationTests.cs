@@ -1,45 +1,38 @@
 using Shared;
-using ShaRPC.Core.Client;
-using ShaRPC.Core.Server;
+using ShaRPC.Core;
 using ShaRPC.Generated;
 using ShaRPC.Serializers.MessagePack;
 using ShaRPC.Transports.Tcp;
+using System.Net;
 using Xunit;
 
 namespace ShaRPC.Tests;
 
 public class IntegrationTests : IAsyncLifetime
 {
-    private ShaRpcServer? _server;
-    private ShaRpcClient? _client;
+    private RpcHost? _host;
+    private TcpTransport? _transport;
+    private RpcPeer? _client;
     private IGameService? _gameService;
-    private const int TestPort = 15000;
 
     public async Task InitializeAsync()
     {
-        // Create and start server
-        var serverTransport = new TcpServerTransport(TestPort);
+        var serverTransport = new TcpServerTransport(IPAddress.Loopback, 0);
         var serializer = new MessagePackRpcSerializer();
-        var gameServiceImpl = new TestGameService();
 
-        _server = new ShaRpcServerBuilder()
-            .UseTransport(serverTransport)
-            .UseSerializer(serializer)
-            .AddGameService(gameServiceImpl)
-            .Build();
+        _host = RpcHost
+            .Listen(serverTransport, serializer)
+            .ForEachPeer(peer => peer.ProvideGameService(new TestGameService()));
+        await _host.StartAsync();
+        var port = serverTransport.LocalEndpoint?.Port ??
+            throw new InvalidOperationException("TCP test server did not expose a bound port.");
 
-        await _server.StartAsync();
-
-        // Create and connect client
-        var clientTransport = new TcpTransport("localhost", TestPort);
-        _client = new ShaRpcClientBuilder()
-            .UseTransport(clientTransport)
-            .UseSerializer(serializer)
-            .WithTimeout(TimeSpan.FromSeconds(5))
-            .Build();
-
-        await _client.ConnectAsync();
-        _gameService = _client.CreateGameServiceProxy();
+        _transport = new TcpTransport("127.0.0.1", port);
+        await _transport.ConnectAsync();
+        _client = RpcPeer
+            .Over(_transport.Connection!, serializer, new RpcPeerOptions { RequestTimeout = TimeSpan.FromSeconds(5) })
+            .Start();
+        _gameService = _client.GetGameService();
     }
 
     public async Task DisposeAsync()
@@ -49,10 +42,14 @@ public class IntegrationTests : IAsyncLifetime
             await _client.DisposeAsync();
         }
 
-        if (_server != null)
+        if (_transport != null)
         {
-            await _server.StopAsync();
-            await _server.DisposeAsync();
+            await _transport.DisposeAsync();
+        }
+
+        if (_host != null)
+        {
+            await _host.DisposeAsync();
         }
     }
 

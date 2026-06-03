@@ -1,5 +1,5 @@
 using Inventory.Server;
-using ShaRPC.Core.Server;
+using ShaRPC.Core;
 using ShaRPC.Generated;
 using ShaRPC.Serializers.MessagePack;
 using ShaRPC.Transports.Tcp;
@@ -15,18 +15,19 @@ var transport = new TcpServerTransport(Port);
 var serializer = new MessagePackRpcSerializer();
 var inventoryService = new InventoryService();
 
-// The generator emits Add{ServiceName} extension methods for every [ShaRpcService].
-// We only register the root: the sub-service dispatcher is also generated, but the
-// framework reaches it automatically through the per-connection instance registry.
-var server = new ShaRpcServerBuilder()
-    .UseTransport(transport)
-    .UseSerializer(serializer)
-    .AddInventoryService(inventoryService)
-    .AddPlayerInventory(new NullPlayerInventoryPlaceholder()) // satisfies the registry; never called as a singleton
-    .Build();
+// The generator emits Provide{ServiceName} extension methods for every [ShaRpcService].
+// We only provide the root: the sub-service dispatcher is also generated, but the framework
+// reaches it automatically through the per-connection instance registry.
+var host = RpcHost
+    .Listen(transport, serializer)
+    .ForEachPeer(peer =>
+    {
+        peer.ProvideInventoryService(inventoryService);
+        peer.ProvidePlayerInventory(new NullPlayerInventoryPlaceholder()); // satisfies the registry; never called as a singleton
+    });
 
 Console.WriteLine($"Listening on port {Port}.");
-await server.StartAsync();
+await host.StartAsync();
 Console.WriteLine("Server ready. Press Ctrl+C to stop.");
 Console.WriteLine();
 
@@ -42,14 +43,14 @@ catch (OperationCanceledException)
     Console.WriteLine("Shutting down...");
 }
 
-await server.StopAsync();
-await server.DisposeAsync();
+await host.StopAsync();
+await host.DisposeAsync();
 Console.WriteLine("Server stopped.");
 
 /// <summary>
 /// A no-op IPlayerInventory used only to satisfy the singleton-dispatcher registration
 /// (every [ShaRpcService] generates a top-level dispatcher; for sub-services that
-/// nothing ever calls as a singleton, you can register any throwing placeholder).
+/// nothing ever calls as a singleton, you can provide any throwing placeholder).
 /// The real per-instance work happens through DispatchOnInstanceAsync on the same
 /// generated dispatcher class.
 /// </summary>

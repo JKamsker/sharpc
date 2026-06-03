@@ -73,17 +73,17 @@ namespace ShaRPC.Generated
         }
 
         /// <summary>
-        /// Creates the generated client proxy for <typeparamref name="TService" />.
+        /// Creates the generated proxy for <typeparamref name="TService" /> over an invoker.
         /// </summary>
-        public static TService CreateProxy<TService>(global::ShaRPC.Core.Client.IShaRpcClient client)
+        public static TService CreateProxy<TService>(global::ShaRPC.Core.IRpcInvoker invoker)
             where TService : class
-            => global::ShaRPC.Core.Generated.ShaRpcServiceRegistry.CreateProxy<TService>(client);
+            => global::ShaRPC.Core.Generated.ShaRpcServiceRegistry.CreateProxy<TService>(invoker);
 
         /// <summary>
-        /// Creates the generated client proxy for <paramref name="serviceInterface" />.
+        /// Creates the generated proxy for <paramref name="serviceInterface" /> over an invoker.
         /// </summary>
-        public static object CreateProxy(global::System.Type serviceInterface, global::ShaRPC.Core.Client.IShaRpcClient client)
-            => global::ShaRPC.Core.Generated.ShaRpcServiceRegistry.CreateProxy(serviceInterface, client);
+        public static object CreateProxy(global::System.Type serviceInterface, global::ShaRPC.Core.IRpcInvoker invoker)
+            => global::ShaRPC.Core.Generated.ShaRpcServiceRegistry.CreateProxy(serviceInterface, invoker);
 
         /// <summary>
         /// Creates the generated server dispatcher for <paramref name="implementation" />.

@@ -11,15 +11,15 @@ namespace ShaRPC.Generated
     {
 
         /// <summary>
-        /// Creates a proxy for IKwSnap.
+        /// Provides a IKwSnap implementation for the other peer to call.
         /// </summary>
-        public static global::Snap.Kw.IKwSnap CreateKwSnapProxy(this global::ShaRPC.Core.Client.IShaRpcClient client)
-            => new global::Snap.Kw.KwSnapProxy(client);
+        public static global::ShaRPC.Core.RpcPeer ProvideKwSnap(this global::ShaRPC.Core.RpcPeer peer, global::Snap.Kw.IKwSnap implementation)
+            => peer.Provide((global::ShaRPC.Core.Server.IServiceDispatcher)new global::Snap.Kw.KwSnapDispatcher(implementation));
 
         /// <summary>
-        /// Registers IKwSnap with the server.
+        /// Gets a proxy to call IKwSnap on the other peer.
         /// </summary>
-        public static global::ShaRPC.Core.Server.ShaRpcServerBuilder AddKwSnap(this global::ShaRPC.Core.Server.ShaRpcServerBuilder builder, global::Snap.Kw.IKwSnap implementation)
-            => builder.AddDispatcher(new global::Snap.Kw.KwSnapDispatcher(implementation));
+        public static global::Snap.Kw.IKwSnap GetKwSnap(this global::ShaRPC.Core.RpcPeer peer)
+            => new global::Snap.Kw.KwSnapProxy(peer);
     }
 }

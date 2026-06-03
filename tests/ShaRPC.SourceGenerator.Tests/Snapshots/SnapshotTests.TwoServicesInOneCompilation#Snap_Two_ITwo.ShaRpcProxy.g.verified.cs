@@ -9,31 +9,31 @@ namespace Snap.Two
     /// </summary>
     public sealed class TwoProxy : global::Snap.Two.ITwo, global::Snap.Two.ITwoAsync
     {
-        private readonly global::ShaRPC.Core.Client.IShaRpcClient _client;
+        private readonly global::ShaRPC.Core.IRpcInvoker _invoker;
         /// <summary>Non-null when this proxy targets a sub-service instance returned by a parent call.</summary>
         private readonly string? _instanceId;
 
-        public TwoProxy(global::ShaRPC.Core.Client.IShaRpcClient client)
+        public TwoProxy(global::ShaRPC.Core.IRpcInvoker client)
         {
-            this._client = client ?? throw new global::System.ArgumentNullException(nameof(client));
+            this._invoker = client ?? throw new global::System.ArgumentNullException(nameof(client));
             this._instanceId = null;
         }
 
         /// <summary>Constructs a proxy bound to a specific server-side instance.</summary>
-        public TwoProxy(global::ShaRPC.Core.Client.IShaRpcClient client, string instanceId)
+        public TwoProxy(global::ShaRPC.Core.IRpcInvoker client, string instanceId)
         {
-            this._client = client ?? throw new global::System.ArgumentNullException(nameof(client));
+            this._invoker = client ?? throw new global::System.ArgumentNullException(nameof(client));
             this._instanceId = instanceId ?? throw new global::System.ArgumentNullException(nameof(instanceId));
         }
 
         public async global::System.Threading.Tasks.Task<string> BAsync()
         {
-            return await (this._instanceId is null ? this._client.InvokeAsync<string>("ITwo", "BAsync", default) : this._client.InvokeOnInstanceAsync<string>("ITwo", this._instanceId!, "BAsync", default));
+            return await (this._instanceId is null ? this._invoker.InvokeAsync<string>("ITwo", "BAsync", default) : this._invoker.InvokeOnInstanceAsync<string>("ITwo", this._instanceId!, "BAsync", default));
         }
 
         public async global::System.Threading.Tasks.Task<string> BAsync(global::System.Threading.CancellationToken ct = default)
         {
-            return await (this._instanceId is null ? this._client.InvokeAsync<string>("ITwo", "BAsync", ct) : this._client.InvokeOnInstanceAsync<string>("ITwo", this._instanceId!, "BAsync", ct));
+            return await (this._instanceId is null ? this._invoker.InvokeAsync<string>("ITwo", "BAsync", ct) : this._invoker.InvokeOnInstanceAsync<string>("ITwo", this._instanceId!, "BAsync", ct));
         }
     }
 }

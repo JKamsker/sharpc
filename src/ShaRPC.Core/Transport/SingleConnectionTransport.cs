@@ -5,17 +5,17 @@ namespace ShaRPC.Core.Transport;
 /// </summary>
 public sealed class SingleConnectionTransport : ITransport
 {
-    private readonly IConnection _connection;
+    private readonly IRpcChannel _connection;
     private readonly bool _ownsConnection;
     private int _disposed;
 
-    public SingleConnectionTransport(IConnection connection, bool ownsConnection = false)
+    public SingleConnectionTransport(IRpcChannel connection, bool ownsConnection = false)
     {
         _connection = connection ?? throw new ArgumentNullException(nameof(connection));
         _ownsConnection = ownsConnection;
     }
 
-    public IConnection? Connection => Volatile.Read(ref _disposed) == 0 ? _connection : null;
+    public IRpcChannel? Connection => Volatile.Read(ref _disposed) == 0 ? _connection : null;
 
     public bool IsConnected => Volatile.Read(ref _disposed) == 0 && _connection.IsConnected;
 
@@ -48,14 +48,14 @@ public sealed class SingleConnectionTransport : ITransport
 /// </summary>
 public sealed class SingleConnectionServerTransport : IServerTransport
 {
-    private readonly IConnection _connection;
+    private readonly IRpcChannel _connection;
     private readonly bool _ownsConnection;
     private readonly TaskCompletionSource<bool> _stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private int _accepted;
     private int _started;
     private int _disposed;
 
-    public SingleConnectionServerTransport(IConnection connection, bool ownsConnection = false)
+    public SingleConnectionServerTransport(IRpcChannel connection, bool ownsConnection = false)
     {
         _connection = connection ?? throw new ArgumentNullException(nameof(connection));
         _ownsConnection = ownsConnection;
@@ -72,7 +72,7 @@ public sealed class SingleConnectionServerTransport : IServerTransport
         return Task.CompletedTask;
     }
 
-    public async Task<IConnection> AcceptAsync(CancellationToken ct = default)
+    public async Task<IRpcChannel> AcceptAsync(CancellationToken ct = default)
     {
         if (Volatile.Read(ref _disposed) != 0)
         {

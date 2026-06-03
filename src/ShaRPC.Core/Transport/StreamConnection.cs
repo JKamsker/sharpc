@@ -9,7 +9,7 @@ namespace ShaRPC.Core.Transport;
 /// <summary>
 /// ShaRPC connection over a duplex stream, including named pipe streams.
 /// </summary>
-public sealed class StreamConnection : IConnection
+public sealed class StreamConnection : IRpcChannel
 {
     private readonly Stream _stream;
     private readonly bool _ownsStream;
@@ -61,7 +61,15 @@ public sealed class StreamConnection : IConnection
         }
         finally
         {
-            _sendLock.Release();
+            try
+            {
+                _sendLock.Release();
+            }
+            catch (ObjectDisposedException)
+            {
+                // CloseAsync disposed the send lock while this send was in flight; the real I/O fault
+                // (if any) already propagates from the WriteAsync above. Mirrors TcpConnection.SendAsync.
+            }
         }
     }
 

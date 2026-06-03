@@ -48,39 +48,44 @@ public class MyService : IMyService
 }
 
 // Server/Program.cs
-using ShaRPC.Core.Server;
+using ShaRPC.Core;
 using ShaRPC.Generated;
 using ShaRPC.Serializers.MessagePack;
 using ShaRPC.Transports.Tcp;
 
-var server = new ShaRpcServerBuilder()
-    .UseTransport(new TcpServerTransport(5050))
-    .UseSerializer(new MessagePackRpcSerializer())
-    .AddMyService(new MyService())
-    .Build();
+// A host turns every accepted connection into a peer.
+// Each peer provides your service; the generated ProvideMyService extension wires it up.
+await using var host = RpcHost
+    .Listen(new TcpServerTransport(5050), new MessagePackRpcSerializer())
+    .ForEachPeer(peer => peer.ProvideMyService(new MyService()));
 
-await server.StartAsync();
+await host.StartAsync();
 Console.WriteLine("Server running on port 5050");
 Console.ReadLine();
+
+await host.StopAsync(); // DisposeAsync also stops the host
 ```
 
 ## 3. Create the Client
 
 ```csharp
 // Client/Program.cs
-using ShaRPC.Core.Client;
+using ShaRPC.Core;
 using ShaRPC.Generated;
 using ShaRPC.Serializers.MessagePack;
 using ShaRPC.Transports.Tcp;
 
-var client = new ShaRpcClientBuilder()
-    .UseTransport(new TcpTransport("localhost", 5050))
-    .UseSerializer(new MessagePackRpcSerializer())
-    .Build();
+var transport = new TcpTransport("localhost", 5050);
+await transport.ConnectAsync();
 
-await client.ConnectAsync();
+// Over a connection, an RpcPeer can both provide and get services.
+// RejectInboundCalls signals a get-only intent (this side never serves calls).
+await using var peer = RpcPeer
+    .Over(transport.Connection!, new MessagePackRpcSerializer(),
+          new RpcPeerOptions { RejectInboundCalls = true })
+    .Start();
 
-var service = client.CreateMyServiceProxy();
+var service = peer.GetMyService();
 var response = await service.GreetAsync(new GreetingRequest { Name = "World" });
 
 Console.WriteLine(response.Message);  // "Hello, World!"
@@ -133,9 +138,9 @@ var clientTransport = new NamedPipeClientTransport("my-app-rpc");
 
 The source generator creates:
 
-1. **Proxy** (`MyServiceProxy`) - Client-side stub that serializes calls
-2. **Dispatcher** (`MyServiceDispatcher`) - Server-side router that deserializes and invokes
-3. **Extensions** (`CreateMyServiceProxy()`, `AddMyService()`) - Convenience methods
+1. **Proxy** (`MyServiceProxy`) - Caller-side stub that serializes calls
+2. **Dispatcher** (`MyServiceDispatcher`) - Provider-side router that deserializes and invokes
+3. **Extensions** (`peer.GetMyService()`, `peer.ProvideMyService(impl)`) - Convenience methods on `RpcPeer`
 4. **Registry factory** (`ShaRpcGenerated`) - Typed proxy/dispatcher factory backed by generated delegates
 5. **Service catalog** (`ShaRpcGenerated.Services`) - Array-backed `ShaRpcGeneratedService` descriptors
 6. **Registration sink** (`ShaRpcGenerated.RegisterServices(...)`) - Direct generic calls for service/proxy registrations
@@ -146,7 +151,8 @@ You can use the generated factory directly when building framework-style APIs:
 ```csharp
 using ShaRPC.Generated;
 
-var proxy = ShaRpcGenerated.CreateProxy<IMyService>(client);
+// CreateProxy takes an IRpcInvoker — pass an RpcPeer.
+var proxy = ShaRpcGenerated.CreateProxy<IMyService>(peer);
 var dispatcher = ShaRpcGenerated.CreateDispatcher<IMyService>(new MyService());
 
 foreach (var service in ShaRpcGenerated.Services)

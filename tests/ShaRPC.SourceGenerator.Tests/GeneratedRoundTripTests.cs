@@ -485,12 +485,12 @@ public class GeneratedRoundTripTests
     // ---------------------------------------------------------------------------------------
 
     /// <summary>
-    /// An <see cref="IShaRpcClient"/> whose every Invoke overload serializes the request,
+    /// An <see cref="ShaRPC.Core.IRpcInvoker"/> whose every Invoke overload serializes the request,
     /// hands the bytes straight to the matching generated dispatcher, and deserializes the
     /// reply — the wire transport collapsed to a method call. Routing is by service name so a
     /// single client can front several services in one compilation.
     /// </summary>
-    internal sealed class LoopbackClient : IShaRpcClient
+    internal sealed class LoopbackClient : global::ShaRPC.Core.IRpcInvoker
     {
         private readonly ISerializer _serializer;
         private readonly IInstanceRegistry _registry;

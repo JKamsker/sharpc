@@ -11,15 +11,15 @@ namespace ShaRPC.Generated
     {
 
         /// <summary>
-        /// Creates a proxy for IDerived.
+        /// Provides a IDerived implementation for the other peer to call.
         /// </summary>
-        public static global::Snap.Inherit.IDerived CreateDerivedProxy(this global::ShaRPC.Core.Client.IShaRpcClient client)
-            => new global::Snap.Inherit.DerivedProxy(client);
+        public static global::ShaRPC.Core.RpcPeer ProvideDerived(this global::ShaRPC.Core.RpcPeer peer, global::Snap.Inherit.IDerived implementation)
+            => peer.Provide((global::ShaRPC.Core.Server.IServiceDispatcher)new global::Snap.Inherit.DerivedDispatcher(implementation));
 
         /// <summary>
-        /// Registers IDerived with the server.
+        /// Gets a proxy to call IDerived on the other peer.
         /// </summary>
-        public static global::ShaRPC.Core.Server.ShaRpcServerBuilder AddDerived(this global::ShaRPC.Core.Server.ShaRpcServerBuilder builder, global::Snap.Inherit.IDerived implementation)
-            => builder.AddDispatcher(new global::Snap.Inherit.DerivedDispatcher(implementation));
+        public static global::Snap.Inherit.IDerived GetDerived(this global::ShaRPC.Core.RpcPeer peer)
+            => new global::Snap.Inherit.DerivedProxy(peer);
     }
 }

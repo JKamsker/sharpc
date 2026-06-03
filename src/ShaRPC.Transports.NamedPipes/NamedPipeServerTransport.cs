@@ -41,7 +41,7 @@ public sealed class NamedPipeServerTransport : IServerTransport
         return Task.CompletedTask;
     }
 
-    public async Task<IConnection> AcceptAsync(CancellationToken ct = default)
+    public async Task<IRpcChannel> AcceptAsync(CancellationToken ct = default)
     {
         ThrowIfDisposed();
         if (Volatile.Read(ref _started) == 0 || _stopCts is null)

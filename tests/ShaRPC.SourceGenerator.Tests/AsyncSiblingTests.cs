@@ -346,7 +346,7 @@ public class AsyncSiblingTests
 
     /// <summary>
     /// Calling the async sibling method on the proxy must not block — the underlying
-    /// IShaRpcClient call uses the awaited path, not GetAwaiter().GetResult().
+    /// IRpcInvoker call uses the awaited path, not GetAwaiter().GetResult().
     /// </summary>
     [Fact]
     public async Task SiblingCall_IsTrulyNonBlocking_NotAGetResultWrapper()
@@ -413,7 +413,7 @@ public class AsyncSiblingTests
         return (alc.LoadFromStream(ms), runResult);
     }
 
-    private sealed class Recorder : IShaRpcClient
+    private sealed class Recorder : global::ShaRPC.Core.IRpcInvoker
     {
         public object? NextResult;
         public string? LastService { get; private set; }
@@ -465,7 +465,7 @@ public class AsyncSiblingTests
     /// A client whose response task only completes when the supplied gate task does —
     /// used to prove the sibling proxy never blocks the caller.
     /// </summary>
-    private sealed class DeferredRecorder : IShaRpcClient
+    private sealed class DeferredRecorder : global::ShaRPC.Core.IRpcInvoker
     {
         private readonly Task<object?> _gate;
         public DeferredRecorder(Task<object?> gate) { _gate = gate; }
