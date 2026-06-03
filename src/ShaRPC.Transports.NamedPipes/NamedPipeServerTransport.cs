@@ -80,6 +80,16 @@ public sealed class NamedPipeServerTransport : IServerTransport
             using (linkedCts)
             {
                 await WaitForConnectionAsync(stream, linkedCts.Token).ConfigureAwait(false);
+
+                // Test seam (null/no-op in production): lets a test deterministically interleave StopAsync
+                // (which disposes _pendingStream) between WaitForConnectionAsync returning and the
+                // StreamConnection construction below. Never set in production.
+                var connectedHook = _onConnectionEstablishedForTest;
+                if (connectedHook is not null)
+                {
+                    await connectedHook().ConfigureAwait(false);
+                }
+
                 return new StreamConnection(stream, $"pipe://./{_pipeName}", ownsStream: true, _maxMessageSize);
             }
         }
@@ -93,6 +103,13 @@ public sealed class NamedPipeServerTransport : IServerTransport
             ClearPendingStream(stream);
         }
     }
+
+    /// <summary>
+    /// Test-only seam invoked once after <c>WaitForConnectionAsync</c> returns and before the
+    /// <see cref="StreamConnection"/> is constructed, so a test can deterministically interleave
+    /// <see cref="StopAsync"/> (which disposes the pending stream) there. Never set in production.
+    /// </summary>
+    internal Func<Task>? _onConnectionEstablishedForTest;
 
     public Task StopAsync(CancellationToken ct = default)
     {

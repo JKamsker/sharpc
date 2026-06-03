@@ -16,6 +16,7 @@ public sealed class StreamConnection : IRpcChannel
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private readonly string _remoteEndpoint;
     private readonly int _maxMessageSize;
+    private readonly TimeSpan _frameReadIdleTimeout;
     private int _disposed;
 
     public StreamConnection(
@@ -23,6 +24,22 @@ public sealed class StreamConnection : IRpcChannel
         string? remoteEndpoint = null,
         bool ownsStream = true,
         int maxMessageSize = MessageFramer.MaxMessageSize)
+        : this(stream, remoteEndpoint, ownsStream, maxMessageSize, frameReadIdleTimeout: null)
+    {
+    }
+
+    /// <summary>
+    /// Test/transport seam mirroring <c>TcpConnection</c>'s slow-loris defense: <paramref name="frameReadIdleTimeout"/>
+    /// is intended to bound how long an in-progress frame body read may stall with no data before the
+    /// connection is torn down. Pass <see cref="Timeout.InfiniteTimeSpan"/> (or <see langword="null"/>) to
+    /// leave body reads untimed.
+    /// </summary>
+    internal StreamConnection(
+        Stream stream,
+        string? remoteEndpoint,
+        bool ownsStream,
+        int maxMessageSize,
+        TimeSpan? frameReadIdleTimeout)
     {
         if (maxMessageSize < MessageFramer.HeaderSize)
         {
@@ -32,11 +49,28 @@ public sealed class StreamConnection : IRpcChannel
                 "Maximum message size must be at least the ShaRPC header size.");
         }
 
+        var timeout = frameReadIdleTimeout ?? Timeout.InfiniteTimeSpan;
+        if (timeout != Timeout.InfiniteTimeSpan &&
+            (timeout <= TimeSpan.Zero || timeout.TotalMilliseconds > int.MaxValue))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(frameReadIdleTimeout),
+                timeout,
+                "Frame read idle timeout must be positive (at most int.MaxValue ms) or Timeout.InfiniteTimeSpan.");
+        }
+
         _stream = stream ?? throw new ArgumentNullException(nameof(stream));
         _ownsStream = ownsStream;
         _remoteEndpoint = remoteEndpoint ?? "stream";
         _maxMessageSize = maxMessageSize;
+        _frameReadIdleTimeout = timeout;
     }
+
+    /// <summary>
+    /// Configured inter-read idle timeout for in-progress frame body reads
+    /// (<see cref="Timeout.InfiniteTimeSpan"/> when disabled). Test/transport seam.
+    /// </summary>
+    internal TimeSpan FrameReadIdleTimeout => _frameReadIdleTimeout;
 
     public bool IsConnected =>
         Volatile.Read(ref _disposed) == 0 &&
