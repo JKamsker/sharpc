@@ -81,6 +81,11 @@ public sealed class TcpTransport : ITransport
         _client = client;
         _connection = new TcpConnection(client, FrameReadIdleTimeout);
 
+        // Full store-load fence so the _client/_connection publication above is globally visible before
+        // _disposed is read. Without it an x86/x64 store-buffer (Dekker) interleaving could let this read
+        // miss a concurrent DisposeAsync while that DisposeAsync misses _connection, leaking the socket.
+        Interlocked.MemoryBarrier();
+
         // Close the window where DisposeAsync ran during the connect and observed null fields: tear
         // down the connection we just created so it cannot outlive a disposed transport.
         if (Volatile.Read(ref _disposed) != 0)

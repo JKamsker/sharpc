@@ -59,7 +59,10 @@ public sealed class MessagePackRpcSerializer : ISerializer
         var effectiveResolvers = new IFormatterResolver[extraCount + 2];
         for (var i = 0; i < extraCount; i++)
         {
-            effectiveResolvers[i] = resolvers![i];
+            // Reject null elements eagerly: a null slipped into CompositeResolver.Create otherwise
+            // fails opaquely on the first Serialize/Deserialize, far from the configuration mistake.
+            effectiveResolvers[i] = resolvers![i]
+                ?? throw new ArgumentException("Resolvers must not contain null elements.", nameof(resolvers));
         }
 
         effectiveResolvers[extraCount] = StandardResolver.Instance;

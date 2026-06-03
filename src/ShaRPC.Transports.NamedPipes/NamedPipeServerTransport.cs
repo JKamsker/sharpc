@@ -44,18 +44,44 @@ public sealed class NamedPipeServerTransport : IServerTransport
     public async Task<IRpcChannel> AcceptAsync(CancellationToken ct = default)
     {
         ThrowIfDisposed();
-        if (Volatile.Read(ref _started) == 0 || _stopCts is null)
-        {
-            throw new InvalidOperationException("Server not started.");
-        }
 
         var stream = CreateStream();
+        CancellationTokenSource linkedCts;
         try
         {
-            SetPendingStream(stream);
-            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, _stopCts.Token);
-            await WaitForConnectionAsync(stream, linkedCts.Token).ConfigureAwait(false);
-            return new StreamConnection(stream, $"pipe://./{_pipeName}", ownsStream: true, _maxMessageSize);
+            // Take _sync to register the pending stream AND build the stop-linked token together, so a
+            // concurrent StopAsync — which nulls and disposes _stopCts under the same lock — cannot slip
+            // between the started/stop-source check and the _stopCts.Token read (which would otherwise
+            // throw NullReference/ObjectDisposed instead of cancelling cleanly).
+            lock (_sync)
+            {
+                if (Volatile.Read(ref _started) == 0 || _stopCts is null)
+                {
+                    throw new InvalidOperationException("Server not started.");
+                }
+
+                if (_pendingStream is not null)
+                {
+                    throw new InvalidOperationException("Only one pending named-pipe accept is supported per transport.");
+                }
+
+                _pendingStream = stream;
+                linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, _stopCts.Token);
+            }
+        }
+        catch
+        {
+            stream.Dispose();
+            throw;
+        }
+
+        try
+        {
+            using (linkedCts)
+            {
+                await WaitForConnectionAsync(stream, linkedCts.Token).ConfigureAwait(false);
+                return new StreamConnection(stream, $"pipe://./{_pipeName}", ownsStream: true, _maxMessageSize);
+            }
         }
         catch
         {
@@ -76,15 +102,25 @@ public sealed class NamedPipeServerTransport : IServerTransport
             return Task.CompletedTask;
         }
 
-        _stopCts?.Cancel();
+        // Null and capture _stopCts under _sync (the same lock AcceptAsync reads it under) and dispose
+        // the pending stream, then cancel+dispose the captured source outside the lock. AcceptAsync
+        // that runs after this sees _stopCts == null and fails fast with "not started"; one already
+        // inside the lock captured a live linked token that the Cancel below still fires.
+        CancellationTokenSource? stopCts;
         lock (_sync)
         {
+            stopCts = _stopCts;
+            _stopCts = null;
             _pendingStream?.Dispose();
             _pendingStream = null;
         }
 
-        _stopCts?.Dispose();
-        _stopCts = null;
+        if (stopCts is not null)
+        {
+            stopCts.Cancel();
+            stopCts.Dispose();
+        }
+
         return Task.CompletedTask;
     }
 
@@ -105,19 +141,6 @@ public sealed class NamedPipeServerTransport : IServerTransport
             _maxAllowedServerInstances,
             PipeTransmissionMode.Byte,
             PipeOptions.Asynchronous);
-
-    private void SetPendingStream(NamedPipeServerStream stream)
-    {
-        lock (_sync)
-        {
-            if (_pendingStream is not null)
-            {
-                throw new InvalidOperationException("Only one pending named-pipe accept is supported per transport.");
-            }
-
-            _pendingStream = stream;
-        }
-    }
 
     private void ClearPendingStream(NamedPipeServerStream stream)
     {

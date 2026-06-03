@@ -286,7 +286,9 @@ public static class MessageFramer
             var totalLength = BinaryPrimitives.ReadInt32LittleEndian(headerBuffer.AsSpan(0, 4));
             if (totalLength < HeaderSize || totalLength > MaxMessageSize)
             {
-                throw new InvalidOperationException($"Invalid message length: {totalLength}");
+                // InvalidDataException for a malformed inbound length, consistent with StreamConnection
+                // and TcpConnection so every transport surfaces the same exception type.
+                throw new InvalidDataException($"Invalid ShaRPC frame length: {totalLength}.");
             }
 
             var messageId = BinaryPrimitives.ReadInt32LittleEndian(headerBuffer.AsSpan(4, 4));

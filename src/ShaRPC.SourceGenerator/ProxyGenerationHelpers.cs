@@ -18,10 +18,30 @@ internal static class ProxyGenerationHelpers
             if (i > 0) sb.Append(", ");
             var p = parameters[i];
             sb.Append(p.RefKindKeyword).Append(p.Type).Append(' ').Append(p.Name);
-            if (p.IsCancellationToken && p.HasDefaultValue)
-            {
-                sb.Append(" = default");
-            }
+            AppendDefaultValue(sb, p);
+        }
+    }
+
+    /// <summary>
+    /// Appends a parameter's default-value clause to a generated signature: <c>= default</c> for a
+    /// cancellation token, the captured literal for any other defaulted parameter, and nothing when
+    /// there is no default or it could not be expressed as a literal (preserving the prior behaviour
+    /// of silently omitting it rather than emitting invalid code).
+    /// </summary>
+    public static void AppendDefaultValue(StringBuilder sb, ParameterModel p)
+    {
+        if (!p.HasDefaultValue)
+        {
+            return;
+        }
+
+        if (p.IsCancellationToken)
+        {
+            sb.Append(" = default");
+        }
+        else if (p.DefaultValueLiteral.Length > 0)
+        {
+            sb.Append(" = ").Append(p.DefaultValueLiteral);
         }
     }
 

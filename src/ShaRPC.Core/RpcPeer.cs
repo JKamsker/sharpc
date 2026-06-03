@@ -72,6 +72,12 @@ public sealed class RpcPeer : IAsyncDisposable, IRpcInvoker
         Volatile.Read(ref _closed) == 0 &&
         _channel.IsConnected;
 
+    /// <summary>
+    /// Test seam: whether the read loop has been started (i.e. <see cref="Start"/>/an invoke has run).
+    /// Lets a test assert the read loop has NOT begun while a host's <c>PeerConnected</c> handler runs.
+    /// </summary>
+    internal bool HasStarted => Volatile.Read(ref _started) != 0;
+
     /// <summary>The remote endpoint string of the underlying channel.</summary>
     public string RemoteEndpoint => _channel.RemoteEndpoint;
     /// <summary>

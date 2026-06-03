@@ -92,10 +92,11 @@ public sealed class TcpServerTransport : IServerTransport
         // netstandard2.1 has no CancellationToken overload for AcceptTcpClientAsync, and Stop()-ing
         // the listener to unblock would tear it down for every future accept. Instead race the accept
         // against the token; on cancellation keep the in-flight accept to hand back on the next call
-        // so the listener stays alive. AcceptAsync is driven by a single accept loop, so there is no
-        // concurrent caller racing _pendingAccept.
-        var acceptTask = _pendingAccept ?? listener.AcceptTcpClientAsync();
-        _pendingAccept = null;
+        // so the listener stays alive. AcceptAsync is driven by a single accept loop, but StopAsync/
+        // DisposeAsync (any thread) reclaim _pendingAccept via Interlocked, so consume it atomically
+        // here too — a plain read+null could let both this call and ObservePendingAccept take the same
+        // stashed accept, returning a TcpClient that is also disposed at shutdown.
+        var acceptTask = ClaimPendingAccept() ?? listener.AcceptTcpClientAsync();
 
         if (ct.CanBeCanceled && !acceptTask.IsCompleted)
         {
@@ -107,7 +108,17 @@ public sealed class TcpServerTransport : IServerTransport
             var completed = await Task.WhenAny(acceptTask, cancelled.Task).ConfigureAwait(false);
             if (completed != acceptTask)
             {
-                _pendingAccept = acceptTask;
+                // Discard the previous value (always null on this path) — the explicit _ also avoids the
+                // CS4014 "un-awaited task" warning that a bare Interlocked.Exchange of a Task would raise.
+                _ = Interlocked.Exchange(ref _pendingAccept, acceptTask);
+
+                // If Stop/Dispose already ran ObservePendingAccept before we re-stashed, reclaim now so
+                // the in-flight accept (and any socket it completes with) is not leaked past shutdown.
+                if (Volatile.Read(ref _started) == 0 || Volatile.Read(ref _disposed) != 0)
+                {
+                    ObservePendingAccept();
+                }
+
                 throw new OperationCanceledException(ct);
             }
         }
@@ -181,4 +192,35 @@ public sealed class TcpServerTransport : IServerTransport
             TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
     }
+
+    /// <summary>
+    /// Atomically claims any stashed in-flight accept. Reads the field, fires the test seam (a no-op in
+    /// production), then claims the stashed task with a <see cref="Interlocked.CompareExchange{T}"/> —
+    /// if a concurrent <see cref="ObservePendingAccept"/> (Stop/Dispose) reclaimed it in between, the CAS
+    /// fails and this returns <see langword="null"/> so the caller starts a fresh accept instead of
+    /// double-taking the same <see cref="TcpClient"/> that shutdown is disposing.
+    /// </summary>
+    private Task<TcpClient>? ClaimPendingAccept()
+    {
+        var stashed = Volatile.Read(ref _pendingAccept);
+        _onPendingAcceptConsumeForTest?.Invoke();
+        if (stashed is not null && Interlocked.CompareExchange(ref _pendingAccept, null, stashed) == stashed)
+        {
+            return stashed;
+        }
+
+        return null;
+    }
+
+    // --- Test seams (null/no-op in production) for the deterministic _pendingAccept double-consume test ---
+
+    /// <summary>Invoked inside <see cref="ClaimPendingAccept"/> between reading and claiming the stash,
+    /// so a test can deterministically race a concurrent reclaim into that window.</summary>
+    internal Action? _onPendingAcceptConsumeForTest;
+
+    internal Task<TcpClient>? ClaimPendingAcceptForTest() => ClaimPendingAccept();
+
+    internal void StashPendingAcceptForTest(Task<TcpClient> accept) => Volatile.Write(ref _pendingAccept, accept);
+
+    internal Task<TcpClient>? ReclaimPendingAcceptForTest() => Interlocked.Exchange(ref _pendingAccept, null);
 }

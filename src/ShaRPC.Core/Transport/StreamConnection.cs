@@ -92,11 +92,6 @@ public sealed class StreamConnection : IRpcChannel
             var frame = Payload.Rent(totalLength);
             BinaryPrimitives.WriteInt32LittleEndian(frame.Memory.Span.Slice(0, 4), totalLength);
 
-            if (totalLength == 4)
-            {
-                return frame;
-            }
-
             try
             {
                 read = await ReadExactAsync(_stream, frame.Memory.Slice(4), ct).ConfigureAwait(false);

@@ -59,7 +59,36 @@ public sealed class NamedPipeClientTransport : ITransport
             stream.Dispose();
             throw;
         }
+
+        // Test seam (null/no-op in production): lets a test deterministically interleave DisposeAsync
+        // between the _connection publication above and the disposed re-check below.
+        var publishedHook = _onConnectionPublishedForTest;
+        if (publishedHook is not null)
+        {
+            await publishedHook().ConfigureAwait(false);
+        }
+
+        // Full store-load fence so the _stream/_connection publication above is globally visible before
+        // _disposed is read. Without it an x86/x64 store-buffer (Dekker) interleaving could let this read
+        // miss a concurrent DisposeAsync while that DisposeAsync misses _connection, leaking the pipe.
+        Interlocked.MemoryBarrier();
+
+        // Close the window where DisposeAsync ran during the connect and observed null fields: tear
+        // down the connection we just published so it (and its owned stream) cannot outlive a disposed
+        // transport. Mirrors TcpTransport.ConnectAsync.
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            await _connection.DisposeAsync().ConfigureAwait(false);
+            throw new ObjectDisposedException(nameof(NamedPipeClientTransport));
+        }
     }
+
+    /// <summary>
+    /// Test-only seam invoked once after <see cref="_connection"/> is published and before the disposed
+    /// re-check, so a test can deterministically interleave <see cref="DisposeAsync"/> there. Never set
+    /// in production.
+    /// </summary>
+    internal Func<Task>? _onConnectionPublishedForTest;
 
     public async ValueTask DisposeAsync()
     {
