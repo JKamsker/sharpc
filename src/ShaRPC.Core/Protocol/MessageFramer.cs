@@ -30,12 +30,12 @@ public static class MessageFramer
     public const int MaxMessageSize = 16 * 1024 * 1024;
 
     /// <summary>
-    /// A framed message read from a stream by <see cref="ReadMessageAsync"/>. The <c>Payload</c> here
-    /// is the message <em>body</em> only — the 9-byte frame header has already been stripped, unlike
-    /// the full-frame payload an <c>IRpcChannel.ReceiveAsync</c> returns. The caller owns it and must
+    /// A framed message read from a stream by <see cref="ReadMessageAsync"/>. <see cref="Body"/> is
+    /// the message body only — the 9-byte frame header has already been stripped, unlike the
+    /// full-frame payload an <c>IRpcChannel.ReceiveAsync</c> returns. The caller owns it and must
     /// dispose it.
     /// </summary>
-    public readonly record struct FramedMessage(int MessageId, MessageType Type, Payload Payload);
+    public readonly record struct FramedMessage(int MessageId, MessageType Type, Payload Body);
 
     /// <summary>
     /// Writes a complete frame (header + payload) into the supplied buffer writer.
@@ -268,7 +268,7 @@ public static class MessageFramer
 
     /// <summary>
     /// Reads a framed message from a stream. Returns <c>null</c> when the connection is closed.
-    /// The caller owns the returned <see cref="FramedMessage.Payload"/> and must dispose it.
+    /// The caller owns the returned <see cref="FramedMessage.Body"/> and must dispose it.
     /// </summary>
     public static async Task<FramedMessage?> ReadMessageAsync(
         Stream stream,

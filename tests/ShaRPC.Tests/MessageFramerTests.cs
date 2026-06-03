@@ -174,11 +174,11 @@ public class MessageFramerTests
         {
             Assert.Equal(messageId, msg.MessageId);
             Assert.Equal(type, msg.Type);
-            Assert.Equal(payload, msg.Payload.Memory.ToArray());
+            Assert.Equal(payload, msg.Body.Memory.ToArray());
         }
         finally
         {
-            msg.Payload.Dispose();
+            msg.Body.Dispose();
         }
     }
 
@@ -216,11 +216,11 @@ public class MessageFramerTests
         {
             Assert.Equal(messageId, msg.MessageId);
             Assert.Equal(type, msg.Type);
-            Assert.Equal(payload, msg.Payload.Memory.ToArray());
+            Assert.Equal(payload, msg.Body.Memory.ToArray());
         }
         finally
         {
-            msg.Payload.Dispose();
+            msg.Body.Dispose();
         }
     }
 
@@ -249,7 +249,7 @@ public class MessageFramerTests
         }
         finally
         {
-            msg.Payload.Dispose();
+            msg.Body.Dispose();
         }
     }
 
@@ -272,11 +272,11 @@ public class MessageFramerTests
         var msg = result.Value;
         try
         {
-            Assert.Equal(payload, msg.Payload.Memory.ToArray());
+            Assert.Equal(payload, msg.Body.Memory.ToArray());
         }
         finally
         {
-            msg.Payload.Dispose();
+            msg.Body.Dispose();
         }
     }
 

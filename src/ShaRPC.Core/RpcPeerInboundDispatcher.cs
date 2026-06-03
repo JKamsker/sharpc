@@ -98,7 +98,28 @@ internal sealed class RpcPeerInboundDispatcher
             return true;
         }
 
-        return await _queue.EnqueueAsync(inbound, loopCt).ConfigureAwait(false);
+        var result = await _queue.EnqueueAsync(inbound, loopCt).ConfigureAwait(false);
+        if (result == InboundEnqueueResult.Dropped)
+        {
+            // The request was shed under backpressure. Reply with an explicit queue-full error so the
+            // caller fails fast instead of waiting out its whole request timeout.
+            await SendQueueFullErrorAsync(messageId, loopCt).ConfigureAwait(false);
+        }
+
+        return result == InboundEnqueueResult.Accepted;
+    }
+
+    private async Task SendQueueFullErrorAsync(int messageId, CancellationToken ct)
+    {
+        try
+        {
+            using var errorFrame = _responseBuilder.BuildErrorFrame(messageId, RpcErrors.QueueFull());
+            await _sendAsync(errorFrame.Memory, ct).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Best-effort: if the notification cannot be sent, the caller still falls back to its timeout.
+        }
     }
 
     public void Cancel(int messageId)
