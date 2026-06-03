@@ -153,7 +153,8 @@ internal sealed class PipeConnection : IRpcChannel
 
         if (totalLength < 4 || totalLength > MaxMessageSize)
         {
-            throw new InvalidOperationException($"Invalid message length: {totalLength}");
+            // Mirror the production transports' InvalidDataException contract for malformed lengths.
+            throw new InvalidDataException($"Invalid ShaRPC frame length: {totalLength}.");
         }
 
         if (buffer.Length < totalLength)
