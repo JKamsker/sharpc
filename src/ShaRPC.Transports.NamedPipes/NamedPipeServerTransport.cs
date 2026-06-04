@@ -51,8 +51,36 @@ public sealed class NamedPipeServerTransport : IServerTransport
             throw new InvalidOperationException("Server already started.");
         }
 
+        // Test seam (null/no-op in production): fires in the window between publishing _started and
+        // assigning _stopCts so a test can deterministically race StopAsync into that gap. Never set in
+        // production.
+        var transitionHook = _onStartTransitionForTest;
+        if (transitionHook is not null)
+        {
+            return StartWithTransitionHookAsync(transitionHook);
+        }
+
         _stopCts = new CancellationTokenSource();
         return Task.CompletedTask;
+    }
+
+    /// <summary>Test-only seam: invoked inside <see cref="StartAsync"/> between marking the server started
+    /// and assigning <c>_stopCts</c>. Never set in production.</summary>
+    internal Func<Task>? _onStartTransitionForTest;
+
+    /// <summary>Test accessor: current started flag.</summary>
+    internal int StartedForTest => Volatile.Read(ref _started);
+
+    /// <summary>Test accessor: current stop source (read under the lock for a consistent view).</summary>
+    internal CancellationTokenSource? StopCtsForTest
+    {
+        get { lock (_sync) { return _stopCts; } }
+    }
+
+    private async Task StartWithTransitionHookAsync(Func<Task> transitionHook)
+    {
+        await transitionHook().ConfigureAwait(false);
+        _stopCts = new CancellationTokenSource();
     }
 
     public async Task<IRpcChannel> AcceptAsync(CancellationToken ct = default)

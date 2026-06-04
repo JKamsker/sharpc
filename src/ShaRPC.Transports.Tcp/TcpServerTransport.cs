@@ -114,6 +114,11 @@ public sealed class TcpServerTransport : IServerTransport
             // does not start (and orphan) one. Inert in production beyond a single Interlocked increment.
             Interlocked.Increment(ref _freshAcceptStartsForTest);
             acceptTask = listener.AcceptTcpClientAsync();
+
+            // Fire the fresh-accept seam (null/no-op in production) so a deterministic test can race a
+            // concurrent cancellation into the window between starting this fresh accept and the in-body
+            // IsCancellationRequested check below.
+            _onFreshAcceptStartedForTest?.Invoke();
         }
 
         // Honour an already-cancelled token before the IsCompleted short-circuit below can return a
@@ -253,6 +258,11 @@ public sealed class TcpServerTransport : IServerTransport
     /// <summary>Invoked inside <see cref="ClaimPendingAccept"/> between reading and claiming the stash,
     /// so a test can deterministically race a concurrent reclaim into that window.</summary>
     internal Action? _onPendingAcceptConsumeForTest;
+
+    /// <summary>Invoked inside <see cref="AcceptAsync"/> right after a fresh
+    /// <c>listener.AcceptTcpClientAsync()</c> is started (and before the in-body cancellation check),
+    /// so a test can deterministically cancel the token in that exact window. No-op in production.</summary>
+    internal Action? _onFreshAcceptStartedForTest;
 
     internal Task<TcpClient>? ClaimPendingAcceptForTest() => ClaimPendingAccept();
 
