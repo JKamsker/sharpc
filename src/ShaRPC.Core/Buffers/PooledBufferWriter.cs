@@ -45,7 +45,9 @@ public sealed class PooledBufferWriter : IBufferWriter<byte>, IDisposable
         }
 
         var buffer = _buffer ?? throw new ObjectDisposedException(nameof(PooledBufferWriter));
-        if (_written + count > buffer.Length)
+        // Widen to 64-bit: _written + count in 32-bit signed arithmetic can overflow to a negative value,
+        // making this guard pass and silently corrupting _written (symmetric with the EnsureCapacity fix).
+        if ((long)_written + count > buffer.Length)
         {
             throw new InvalidOperationException("Cannot advance past the end of the buffer.");
         }

@@ -8,6 +8,14 @@ internal static class IdentifierHelpers
     public static string EscapeIdentifier(string name)
     {
         var kind = SyntaxFacts.GetKeywordKind(name);
+        if (kind == SyntaxKind.None)
+        {
+            // Contextual keywords (async, await, record, var, ...) return None from GetKeywordKind but
+            // still need @-escaping when used as an identifier where the compiler would otherwise parse
+            // them as keywords (e.g. a method named 'async' before a return type).
+            kind = SyntaxFacts.GetContextualKeywordKind(name);
+        }
+
         return kind == SyntaxKind.None ? name : "@" + name;
     }
 

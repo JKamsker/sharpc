@@ -133,7 +133,7 @@ internal static class ProxyGenerator
 
         if (method.UnsupportedReason is not null)
         {
-            sb.AppendLine($"            throw new global::System.NotSupportedException(\"ShaRPC cannot marshal '{method.Name}': {LiteralHelpers.EscapeStringLiteral(method.UnsupportedReason)}\");");
+            sb.AppendLine($"            throw new global::System.NotSupportedException(\"ShaRPC cannot marshal '{IdentifierHelpers.UnescapeIdentifier(method.Name)}': {LiteralHelpers.EscapeStringLiteral(method.UnsupportedReason)}\");");
         }
         else
         {

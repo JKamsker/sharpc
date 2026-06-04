@@ -35,13 +35,21 @@ namespace Snap.Nested
                     }
                     catch
                     {
-                        if (__sub is global::System.IAsyncDisposable __ad)
+                        try
                         {
-                            await __ad.DisposeAsync().ConfigureAwait(false);
+                            if (__sub is global::System.IAsyncDisposable __ad)
+                            {
+                                await __ad.DisposeAsync().ConfigureAwait(false);
+                            }
+                            else if (__sub is global::System.IDisposable __d)
+                            {
+                                __d.Dispose();
+                            }
                         }
-                        else if (__sub is global::System.IDisposable __d)
+                        catch
                         {
-                            __d.Dispose();
+                            // Best-effort cleanup of the orphaned sub-service: a faulting disposer must
+                            // not replace the original registration failure that is about to be rethrown.
                         }
                         throw;
                     }
@@ -82,13 +90,21 @@ namespace Snap.Nested
                     }
                     catch
                     {
-                        if (__sub is global::System.IAsyncDisposable __ad)
+                        try
                         {
-                            await __ad.DisposeAsync().ConfigureAwait(false);
+                            if (__sub is global::System.IAsyncDisposable __ad)
+                            {
+                                await __ad.DisposeAsync().ConfigureAwait(false);
+                            }
+                            else if (__sub is global::System.IDisposable __d)
+                            {
+                                __d.Dispose();
+                            }
                         }
-                        else if (__sub is global::System.IDisposable __d)
+                        catch
                         {
-                            __d.Dispose();
+                            // Best-effort cleanup of the orphaned sub-service: a faulting disposer must
+                            // not replace the original registration failure that is about to be rethrown.
                         }
                         throw;
                     }
