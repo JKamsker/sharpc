@@ -4,6 +4,7 @@ using ShaRPC.Core.Buffers;
 using ShaRPC.Core.Protocol;
 using ShaRPC.Core.Serialization;
 using ShaRPC.Core.Server;
+using ShaRPC.Core.Streaming;
 using ShaRPC.Core.Transport;
 
 namespace ShaRPC.Core;
@@ -13,9 +14,11 @@ internal sealed class RpcPeerInboundDispatcher
     private readonly ConcurrentDictionary<string, IServiceDispatcher> _dispatchers = new();
     private readonly ConcurrentDictionary<int, CancellationTokenSource> _activeInbound = new();
     private readonly ConcurrentDictionary<int, Task> _activeTasks = new();
+    private readonly ConcurrentDictionary<int, Task> _activeStreamTasks = new();
     private readonly InstanceRegistry _registry = new();
     private readonly ISerializer _serializer;
     private readonly RpcPeerResponseBuilder _responseBuilder;
+    private readonly RpcStreamManager _streams;
     private readonly Func<ReadOnlyMemory<byte>, CancellationToken, Task> _sendAsync;
     private readonly Action<int, MessageType, string, Exception?> _protocolError;
     private readonly Action<RpcPeerInboundRequest, Exception> _dispatchError;
@@ -26,6 +29,7 @@ internal sealed class RpcPeerInboundDispatcher
     public RpcPeerInboundDispatcher(
         ISerializer serializer,
         RpcPeerOptions options,
+        RpcStreamManager streams,
         Func<ReadOnlyMemory<byte>, CancellationToken, Task> sendAsync,
         Action<int, MessageType, string, Exception?> protocolError,
         Action<RpcPeerInboundRequest, Exception> dispatchError)
@@ -37,6 +41,7 @@ internal sealed class RpcPeerInboundDispatcher
             _dispatchers,
             options.RejectInboundCalls,
             options.ExceptionTransformer);
+        _streams = streams;
         _sendAsync = sendAsync;
         _protocolError = protocolError;
         _dispatchError = dispatchError;
@@ -155,6 +160,11 @@ internal sealed class RpcPeerInboundDispatcher
             await ObserveShutdownAsync(Task.WhenAll(_activeTasks.Values)).ConfigureAwait(false);
         }
 
+        if (!_activeStreamTasks.IsEmpty)
+        {
+            await ObserveShutdownAsync(Task.WhenAll(_activeStreamTasks.Values)).ConfigureAwait(false);
+        }
+
         await _registry.ReleaseAllAsync().ConfigureAwait(false);
     }
 
@@ -198,6 +208,7 @@ internal sealed class RpcPeerInboundDispatcher
         }
 
         inbound = new RpcPeerInboundRequest(frame, request, messageId, payload, requestCts);
+        _streams.RegisterInbound(request.Streams, requestCts.Token);
         return true;
     }
 
@@ -251,16 +262,28 @@ internal sealed class RpcPeerInboundDispatcher
 
     private async Task ProcessRequestAsync(RpcPeerInboundRequest inbound)
     {
+        var releaseRequest = true;
         try
         {
             using (inbound.Frame)
             {
-                using var responseFrame = await _responseBuilder.BuildAsync(
+                var streaming = new RpcStreamingContext(
+                    _streams,
+                    _serializer,
+                    inbound.MessageId,
+                    inbound.RequestCts.Token);
+                using var response = await _responseBuilder.BuildAsync(
                     inbound.Request,
                     inbound.MessageId,
                     inbound.Body,
+                    streaming,
                     inbound.RequestCts.Token).ConfigureAwait(false);
-                await _sendAsync(responseFrame.Memory, inbound.RequestCts.Token).ConfigureAwait(false);
+                await _sendAsync(response.Frame.Memory, inbound.RequestCts.Token).ConfigureAwait(false);
+                if (response.Stream is not null)
+                {
+                    StartResponseStream(inbound, response.Stream);
+                    releaseRequest = false;
+                }
             }
         }
         catch (OperationCanceledException) when (inbound.RequestCts.IsCancellationRequested)
@@ -285,12 +308,63 @@ internal sealed class RpcPeerInboundDispatcher
         }
         finally
         {
+            if (releaseRequest)
+            {
+                ReleaseRequest(inbound);
+            }
+        }
+    }
+
+    private void StartResponseStream(RpcPeerInboundRequest inbound, RpcStreamAttachment stream)
+    {
+        var task = ProcessResponseStreamAsync(inbound, stream);
+        if (!_activeStreamTasks.TryAdd(inbound.MessageId, task))
+        {
+            RpcDiagnostics.Report(
+                "Duplicate inbound response stream task",
+                new InvalidOperationException("Duplicate message ID in _activeStreamTasks."));
+        }
+        else if (task.IsCompleted)
+        {
+            _activeStreamTasks.TryRemove(inbound.MessageId, out _);
+        }
+    }
+
+    private async Task ProcessResponseStreamAsync(RpcPeerInboundRequest inbound, RpcStreamAttachment stream)
+    {
+        try
+        {
+            await using var outbound = _streams.RegisterOutbound(
+                new[] { stream },
+                inbound.RequestCts.Token);
+            outbound.Start();
+            await outbound.WaitAsync().ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (inbound.RequestCts.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            _dispatchError(inbound, ex);
+            RpcDiagnostics.Report("Inbound response stream failed", ex);
+        }
+        finally
+        {
+            _activeStreamTasks.TryRemove(inbound.MessageId, out _);
             ReleaseRequest(inbound);
         }
     }
 
     private void ReleaseRequest(RpcPeerInboundRequest inbound)
     {
+        if (inbound.Request.Streams is { } streams)
+        {
+            foreach (var stream in streams)
+            {
+                _streams.RemoveInbound(stream.StreamId);
+            }
+        }
+
         _activeInbound.TryRemove(inbound.MessageId, out _);
         inbound.RequestCts.Dispose();
     }
@@ -318,4 +392,5 @@ internal sealed class RpcPeerInboundDispatcher
             // Individual request tasks observe their own failures.
         }
     }
+
 }

@@ -19,13 +19,28 @@ internal static class ProxyInvocationEmitter
             case MethodReturnKind.Sync:
                 sb.AppendLine($"            return {invocation}.GetAwaiter().GetResult();");
                 break;
+            case MethodReturnKind.Stream:
+            case MethodReturnKind.Pipe:
+                sb.AppendLine($"            return {invocation}.GetAwaiter().GetResult();");
+                break;
+            case MethodReturnKind.AsyncEnumerable:
+                sb.AppendLine($"            return {invocation};");
+                break;
             case MethodReturnKind.Task:
             case MethodReturnKind.ValueTask:
                 sb.AppendLine($"            await {invocation};");
                 break;
             case MethodReturnKind.TaskOf:
             case MethodReturnKind.ValueTaskOf:
+            case MethodReturnKind.TaskOfStream:
+            case MethodReturnKind.ValueTaskOfStream:
+            case MethodReturnKind.TaskOfPipe:
+            case MethodReturnKind.ValueTaskOfPipe:
                 sb.AppendLine($"            return await {invocation};");
+                break;
+            case MethodReturnKind.TaskOfAsyncEnumerable:
+            case MethodReturnKind.ValueTaskOfAsyncEnumerable:
+                sb.AppendLine($"            return {invocation};");
                 break;
             case MethodReturnKind.TaskOfSubService:
             case MethodReturnKind.ValueTaskOfSubService:

@@ -97,6 +97,7 @@ internal static class MethodModelFactory
             requiresUnsafeSignature |= RpcTypeValidator.RequiresUnsafeContext(param.Type, ct);
             var isCancellationToken = cancellationTokenSymbol is not null &&
                 SymbolEqualityComparer.Default.Equals(param.Type, cancellationTokenSymbol);
+            var (streamKind, streamItemType) = ClassifyParameterStream(param.Type, ct);
 
             if (isCancellationToken)
             {
@@ -124,14 +125,16 @@ internal static class MethodModelFactory
             SetUnsupported(
                 ref unsupportedReason,
                 ref unsupportedLocation,
-                RpcTypeValidator.GetUnsupportedTypeReason(param.Type, $"parameter '{param.Name}'", ct),
+                GetUnsupportedParameterTypeReason(param.Type, streamKind, streamItemType, param.Name, ct),
                 parameterLocation);
             SetUnsupported(
                 ref unsupportedReason,
                 ref unsupportedLocation,
-                RpcTypeValidator.GetUnsupportedSubServicePayloadReason(
+                GetUnsupportedParameterSubServiceReason(
                     param.Type,
-                    $"parameter '{param.Name}'",
+                    streamKind,
+                    streamItemType,
+                    param.Name,
                     ct,
                     validationCache),
                 parameterLocation);
@@ -147,7 +150,9 @@ internal static class MethodModelFactory
                 ParameterRefKindKeyword(param.RefKind),
                 isCancellationToken,
                 param.HasExplicitDefaultValue,
-                defaultValueLiteral));
+                defaultValueLiteral,
+                streamKind,
+                streamItemType?.ToDisplayString(s_qualifiedFormat)));
         }
 
         if (unsupportedReason is not null)
@@ -250,6 +255,61 @@ internal static class MethodModelFactory
 
         unsupportedReason = reason;
         unsupportedLocation = location;
+    }
+
+    private static (ParameterStreamKind Kind, ITypeSymbol? ItemType) ClassifyParameterStream(
+        ITypeSymbol type,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        if (ReturnTypeClassifier.TryGetAsyncEnumerableItemType(type, out var itemType))
+        {
+            return (ParameterStreamKind.AsyncEnumerable, itemType);
+        }
+
+        if (ReturnTypeClassifier.IsStream(type))
+        {
+            return (ParameterStreamKind.Stream, null);
+        }
+
+        if (ReturnTypeClassifier.IsPipe(type))
+        {
+            return (ParameterStreamKind.Pipe, null);
+        }
+
+        return (ParameterStreamKind.None, null);
+    }
+
+    private static string? GetUnsupportedParameterTypeReason(
+        ITypeSymbol type,
+        ParameterStreamKind streamKind,
+        ITypeSymbol? streamItemType,
+        string parameterName,
+        CancellationToken ct)
+    {
+        var target = streamKind == ParameterStreamKind.AsyncEnumerable && streamItemType is not null
+            ? streamItemType
+            : type;
+        return RpcTypeValidator.GetUnsupportedTypeReason(target, $"parameter '{parameterName}'", ct);
+    }
+
+    private static string? GetUnsupportedParameterSubServiceReason(
+        ITypeSymbol type,
+        ParameterStreamKind streamKind,
+        ITypeSymbol? streamItemType,
+        string parameterName,
+        CancellationToken ct,
+        RpcTypeValidationCache validationCache)
+    {
+        var target = streamKind == ParameterStreamKind.AsyncEnumerable && streamItemType is not null
+            ? streamItemType
+            : type;
+        return RpcTypeValidator.GetUnsupportedSubServicePayloadReason(
+            target,
+            $"parameter '{parameterName}'",
+            ct,
+            validationCache);
     }
 
     /// <summary>
