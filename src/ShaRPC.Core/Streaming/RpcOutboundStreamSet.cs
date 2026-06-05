@@ -117,7 +117,7 @@ internal sealed class RpcOutboundStreamSet : IAsyncDisposable
         try
         {
             await attachment.PumpCoreAsync(_manager, _serializer, state.Token).ConfigureAwait(false);
-            await _manager.SendStreamCompleteAsync(state.StreamId, CancellationToken.None).ConfigureAwait(false);
+            await SendStreamCompleteAsync(state).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (state.IsCancellationRequested)
         {
@@ -127,8 +127,10 @@ internal sealed class RpcOutboundStreamSet : IAsyncDisposable
             RpcDiagnostics.Report("Outbound stream pump failed", ex);
             try
             {
-                await _manager.SendStreamErrorAsync(state.StreamId, ex, CancellationToken.None)
-                    .ConfigureAwait(false);
+                await SendStreamErrorAsync(state, ex).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (state.IsCancellationRequested)
+            {
             }
             catch (Exception sendError)
             {
@@ -139,5 +141,17 @@ internal sealed class RpcOutboundStreamSet : IAsyncDisposable
         {
             _manager.RemoveOutbound(state.StreamId);
         }
+    }
+
+    private async Task SendStreamCompleteAsync(RpcStreamSendState state)
+    {
+        var send = _manager.SendStreamCompleteAsync(state.StreamId, state.Token);
+        await RpcTaskWaiter.WaitAsync(send, state.Token).ConfigureAwait(false);
+    }
+
+    private async Task SendStreamErrorAsync(RpcStreamSendState state, Exception error)
+    {
+        var send = _manager.SendStreamErrorAsync(state.StreamId, error, state.Token);
+        await RpcTaskWaiter.WaitAsync(send, state.Token).ConfigureAwait(false);
     }
 }

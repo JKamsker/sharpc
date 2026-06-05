@@ -162,7 +162,7 @@ internal sealed class RpcStreamManager
             throw new ShaRpcProtocolException($"Inbound stream id '{handle.StreamId}' is already active.");
         }
 
-        _ = SendCreditAsync(handle.StreamId, WindowSize, ct);
+        receiver.SendCreditBestEffort(WindowSize, ct);
         return receiver;
     }
 

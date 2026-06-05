@@ -13,6 +13,11 @@ internal sealed partial class RpcPeerOutboundInvoker
 
         foreach (var stream in streams)
         {
+            if (stream is null)
+            {
+                continue;
+            }
+
             try
             {
                 await stream.DisposeSourceAsync().ConfigureAwait(false);

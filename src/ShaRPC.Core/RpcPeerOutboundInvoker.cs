@@ -256,10 +256,12 @@ internal sealed partial class RpcPeerOutboundInvoker : IRpcInvoker
         }
 
         var outboundStreams = RpcOutboundStreamSet.Empty;
+        var registeredStreams = false;
         Payload frame;
         try
         {
             outboundStreams = _streams.RegisterOutbound(streams, ct);
+            registeredStreams = true;
             var envelope = CreateEnvelope(pending.MessageId, service, method, instanceId, streams);
             frame = MessageFramer.FrameRequest(
                 _serializer,
@@ -276,6 +278,11 @@ internal sealed partial class RpcPeerOutboundInvoker : IRpcInvoker
             _pending.Remove(pending.MessageId, pending.Completion.Task, consumed: true);
             ReleasePendingSlot();
             await outboundStreams.DisposeAsync().ConfigureAwait(false);
+            if (!registeredStreams)
+            {
+                await DisposeStreamSourcesBestEffortAsync(streams).ConfigureAwait(false);
+            }
+
             throw;
         }
 
@@ -358,50 +365,6 @@ internal sealed partial class RpcPeerOutboundInvoker : IRpcInvoker
 
     private void ReleasePendingSlot() => Interlocked.Decrement(ref _pendingCount);
 
-    private static void ValidateTarget(string service, string method)
-    {
-        if (string.IsNullOrEmpty(service))
-        {
-            throw new ArgumentException("Service name must not be null or empty.", nameof(service));
-        }
-
-        if (string.IsNullOrEmpty(method))
-        {
-            throw new ArgumentException("Method name must not be null or empty.", nameof(method));
-        }
-    }
-
-    private static RpcRequest CreateEnvelope(
-        int messageId,
-        string service,
-        string method,
-        string? instanceId,
-        RpcStreamAttachment[]? streams) =>
-        new()
-        {
-            MessageId = messageId,
-            ServiceName = service,
-            MethodName = method,
-            InstanceId = instanceId,
-            Streams = CreateHandles(streams),
-        };
-
-    private static RpcStreamHandle[]? CreateHandles(RpcStreamAttachment[]? streams)
-    {
-        if (streams is null || streams.Length == 0)
-        {
-            return null;
-        }
-
-        var handles = new RpcStreamHandle[streams.Length];
-        for (var i = 0; i < streams.Length; i++)
-        {
-            handles[i] = streams[i].Handle;
-        }
-
-        return handles;
-    }
-
     private int NextMessageId(CancellationToken ct)
     {
         while (true)
@@ -471,9 +434,11 @@ internal sealed partial class RpcPeerOutboundInvoker : IRpcInvoker
 
             if (!received.Response.IsSuccess)
             {
-                throw new ShaRpcRemoteException(
+                var error = new ShaRpcRemoteException(
                     received.Response.ErrorMessage ?? "Unknown error",
                     received.Response.ErrorType ?? "Unknown");
+                received.Dispose();
+                throw error;
             }
 
             received.AttachOutboundStreams(outboundStreams);

@@ -149,6 +149,54 @@ public sealed class StreamingProtocolRegressionTests
     }
 
     [Fact]
+    public async Task ErrorResponseWithStream_DisposesRegisteredReceiver()
+    {
+        var serializer = new MessagePackRpcSerializer();
+        RpcPeerOutboundInvoker? invoker = null;
+        var streams = new RpcStreamManager(serializer, SendAndCompleteErrorAsync, exceptionTransformer: null);
+        invoker = new RpcPeerOutboundInvoker(
+            serializer,
+            new RpcPeerOptions { RequestTimeout = TestTimeout },
+            ensureStarted: static () => { },
+            SendAndCompleteErrorAsync,
+            streams);
+
+        await Assert.ThrowsAsync<ShaRpcRemoteException>(() =>
+            invoker.InvokeAsync<int>("Svc", "Bad", CancellationToken.None));
+
+        Assert.Equal(0, streams.InboundReceiverCount);
+
+        Task SendAndCompleteErrorAsync(ReadOnlyMemory<byte> frame, CancellationToken ct)
+        {
+            Assert.True(MessageFramer.TryReadFrameHeader(frame, out var messageId, out var type));
+            if (type != MessageType.Request)
+            {
+                return Task.CompletedTask;
+            }
+
+            var response = MessageFramer.FrameMessage(
+                serializer,
+                messageId,
+                MessageType.Error,
+                new RpcResponse
+                {
+                    MessageId = messageId,
+                    IsSuccess = false,
+                    ErrorMessage = "failed",
+                    ErrorType = "Remote",
+                    Stream = new RpcStreamHandle(604, RpcStreamKind.Binary),
+                },
+                ReadOnlySpan<byte>.Empty);
+            if (!invoker!.TryCompleteResponse(messageId, response))
+            {
+                response.Dispose();
+            }
+
+            return Task.CompletedTask;
+        }
+    }
+
+    [Fact]
     public async Task UnknownCredits_AreIgnoredInsteadOfBufferedForever()
     {
         var serializer = new MessagePackRpcSerializer();

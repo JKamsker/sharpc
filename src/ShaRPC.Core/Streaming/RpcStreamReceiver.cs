@@ -1,6 +1,7 @@
 using System.Threading.Channels;
 using ShaRPC.Core;
 using ShaRPC.Core.Buffers;
+using ShaRPC.Core.Exceptions;
 using ShaRPC.Core.Protocol;
 
 namespace ShaRPC.Core.Streaming;
@@ -157,7 +158,24 @@ internal sealed class RpcStreamReceiver
     {
         if (Volatile.Read(ref _completed) == 0)
         {
-            _ = _manager.SendCreditAsync(Handle.StreamId, 1, CancellationToken.None);
+            SendCreditBestEffort(1, CancellationToken.None);
+        }
+    }
+
+    internal void SendCreditBestEffort(int count, CancellationToken ct) =>
+        _ = SendCreditBestEffortAsync(count, ct);
+
+    private async Task SendCreditBestEffortAsync(int count, CancellationToken ct)
+    {
+        try
+        {
+            await _manager.SendCreditAsync(Handle.StreamId, count, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            RpcDiagnostics.Report("Stream credit notification failed", ex);
+            Abort(new ShaRpcConnectionException("Stream credit notification failed.", ex));
+            _manager.RemoveCompletedInbound(Handle.StreamId);
         }
     }
 }

@@ -176,6 +176,38 @@ public sealed class StreamingOutboundReservationRegressionTests
         Assert.Equal(0, streams.OutboundSenderCount);
     }
 
+    [Fact]
+    public async Task StreamedInvoke_OutboundRegistrationFailure_DisposesOwnedAttachmentSources()
+    {
+        var serializer = new MessagePackRpcSerializer();
+        var streams = new RpcStreamManager(serializer, SendNoopAsync, exceptionTransformer: null);
+        var invoker = new RpcPeerOutboundInvoker(
+            serializer,
+            new RpcPeerOptions { RequestTimeout = Timeout },
+            ensureStarted: static () => { },
+            SendNoopAsync,
+            streams);
+        var handle = invoker.ReserveStream(RpcStreamKind.Binary);
+        var first = new TrackingStream(new byte[] { 1 });
+        var second = new TrackingStream(new byte[] { 2 });
+        var attachments = new[]
+        {
+            RpcStreamAttachment.FromStream(handle, first, leaveOpen: false),
+            RpcStreamAttachment.FromStream(handle, second, leaveOpen: false),
+        };
+
+        await Assert.ThrowsAsync<ShaRpcProtocolException>(() =>
+            invoker.InvokeAsync<(RpcStreamHandle, RpcStreamHandle), int>(
+                "Svc",
+                "Upload",
+                (handle, handle),
+                attachments));
+
+        Assert.True(first.Disposed);
+        Assert.True(second.Disposed);
+        Assert.Equal(0, streams.OutboundSenderCount);
+    }
+
     private static void CompleteSuccess(
         RpcPeerOutboundInvoker invoker,
         MessagePackRpcSerializer serializer,

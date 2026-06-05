@@ -87,6 +87,81 @@ public sealed class StreamingWave4RegressionTests
     }
 
     [Fact]
+    public async Task StartedOutboundSet_DisposeCancelsStalledStreamCompleteSend()
+    {
+        var serializer = new MessagePackRpcSerializer();
+        var completeSendStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var neverComplete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var streams = new RpcStreamManager(
+            serializer,
+            (frame, ct) =>
+            {
+                Assert.True(MessageFramer.TryReadFrameHeader(frame, out _, out var type));
+                if (type == MessageType.StreamComplete)
+                {
+                    completeSendStarted.TrySetResult();
+                    return neverComplete.Task;
+                }
+
+                return Task.CompletedTask;
+            },
+            exceptionTransformer: null);
+        var handle = streams.ReserveOutbound(RpcStreamKind.Binary);
+        await using var outbound = streams.RegisterOutbound(
+            new[] { RpcStreamAttachment.FromStream(handle, new MemoryStream()) },
+            CancellationToken.None);
+        outbound.Start();
+        await completeSendStarted.Task.WaitAsync(TestTimeout);
+
+        await outbound.DisposeAsync().AsTask().WaitAsync(TestTimeout);
+
+        Assert.Equal(0, streams.OutboundSenderCount);
+    }
+
+    [Fact]
+    public async Task InitialCreditSendFailure_ReportsAndRemovesReceiver()
+    {
+        var serializer = new MessagePackRpcSerializer();
+        var diagnostics = new TaskCompletionSource<RpcDiagnosticErrorEventArgs>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnDiagnostic(object? sender, RpcDiagnosticErrorEventArgs args)
+        {
+            if (args.Operation == "Stream credit notification failed")
+            {
+                diagnostics.TrySetResult(args);
+            }
+        }
+
+        RpcDiagnostics.Error += OnDiagnostic;
+        try
+        {
+            var streams = new RpcStreamManager(
+                serializer,
+                (frame, ct) =>
+                {
+                    Assert.True(MessageFramer.TryReadFrameHeader(frame, out _, out var type));
+                    if (type == MessageType.StreamCredit)
+                    {
+                        throw new InvalidOperationException("credit send failed");
+                    }
+
+                    return Task.CompletedTask;
+                },
+                exceptionTransformer: null);
+
+            streams.RegisterInboundResponse(new RpcStreamHandle(603, RpcStreamKind.Binary), CancellationToken.None);
+
+            var diagnostic = await diagnostics.Task.WaitAsync(TestTimeout);
+            Assert.IsType<InvalidOperationException>(diagnostic.Error);
+            await WaitUntilAsync(() => streams.InboundReceiverCount == 0);
+        }
+        finally
+        {
+            RpcDiagnostics.Error -= OnDiagnostic;
+        }
+    }
+
+    [Fact]
     public async Task RequestCleanup_RemovesContextAcquiredReceiverNotDeclaredByRequest()
     {
         var serializer = new MessagePackRpcSerializer();
