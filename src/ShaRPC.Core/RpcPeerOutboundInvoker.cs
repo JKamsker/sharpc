@@ -223,7 +223,7 @@ internal sealed partial class RpcPeerOutboundInvoker : IRpcInvoker
 
     public Task StopCancelFramesAsync() => _cancelFrames.StopAsync();
 
-    private Task<ReceivedResponse> SendRequestAsync<TRequest>(
+    private async Task<ReceivedResponse> SendRequestAsync<TRequest>(
         string service,
         string method,
         TRequest request,
@@ -254,24 +254,17 @@ internal sealed partial class RpcPeerOutboundInvoker : IRpcInvoker
         }
 
         var outboundStreams = RpcOutboundStreamSet.Empty;
+        Payload frame;
         try
         {
             outboundStreams = _streams.RegisterOutbound(streams, ct);
             var envelope = CreateEnvelope(pending.MessageId, service, method, instanceId, streams);
-            var frame = MessageFramer.FrameRequest(
+            frame = MessageFramer.FrameRequest(
                 _serializer,
                 pending.MessageId,
                 MessageType.Request,
                 envelope,
                 request);
-            return SendFrameAndAwaitAsync(
-                pending.MessageId,
-                pending.Completion,
-                frame,
-                service,
-                method,
-                outboundStreams,
-                ct);
         }
         catch
         {
@@ -280,9 +273,18 @@ internal sealed partial class RpcPeerOutboundInvoker : IRpcInvoker
             // leaks one slot per local setup failure and eventually rejects every call.
             _pending.Remove(pending.MessageId, pending.Completion.Task, consumed: true);
             ReleasePendingSlot();
-            _ = outboundStreams.DisposeAsync();
+            await outboundStreams.DisposeAsync().ConfigureAwait(false);
             throw;
         }
+
+        return await SendFrameAndAwaitAsync(
+            pending.MessageId,
+            pending.Completion,
+            frame,
+            service,
+            method,
+            outboundStreams,
+            ct).ConfigureAwait(false);
     }
 
     private Task<ReceivedResponse> SendRequestAsync(

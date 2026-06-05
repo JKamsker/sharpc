@@ -86,6 +86,13 @@ internal sealed class RpcOutboundStreamSet : IAsyncDisposable
             {
             }
         }
+        else if (Interlocked.Exchange(ref _started, 1) == 0)
+        {
+            foreach (var pair in _streams)
+            {
+                await pair.Attachment.DisposeSourceAsync().ConfigureAwait(false);
+            }
+        }
 
         foreach (var pair in _streams)
         {

@@ -120,20 +120,16 @@ internal sealed class RpcStreamReceiver
         _manager.RemoveInbound(Handle.StreamId);
     }
 
-    public async ValueTask CancelAsync()
+    public ValueTask CancelAsync()
     {
-        try
+        if (Volatile.Read(ref _completed) == 0)
         {
-            if (Volatile.Read(ref _completed) == 0)
-            {
-                await SendCancelBestEffortAsync().ConfigureAwait(false);
-            }
+            _ = SendCancelBestEffortAsync();
         }
-        finally
-        {
-            Abort(new OperationCanceledException());
-            _manager.RemoveInbound(Handle.StreamId);
-        }
+
+        Abort(new OperationCanceledException());
+        _manager.RemoveInbound(Handle.StreamId);
+        return default;
     }
 
     internal void Abort(Exception? error = null)

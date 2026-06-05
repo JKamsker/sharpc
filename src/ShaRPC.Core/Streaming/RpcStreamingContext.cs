@@ -12,6 +12,7 @@ public sealed class RpcStreamingContext : IRpcStreamingContext
     private readonly RpcStreamManager? _streams;
     private readonly ISerializer? _serializer;
     private readonly CancellationToken _ct;
+    private HashSet<int>? _inboundStreamIds;
     private RpcStreamAttachment? _response;
 
     public static RpcStreamingContext Disabled { get; } = new();
@@ -32,6 +33,8 @@ public sealed class RpcStreamingContext : IRpcStreamingContext
 
     internal RpcStreamAttachment? Response => _response;
 
+    internal int[]? AcquiredInboundStreamIds => _inboundStreamIds?.ToArray();
+
     internal async ValueTask AbandonResponseAsync()
     {
         if (Interlocked.Exchange(ref _response, null) is not { } response)
@@ -45,24 +48,18 @@ public sealed class RpcStreamingContext : IRpcStreamingContext
 
     public Stream GetStream(RpcStreamHandle handle)
     {
-        EnsureEnabled();
-        EnsureKind(handle, RpcStreamKind.Binary);
-        return new RpcRemoteStream(_streams!.GetOrRegisterInbound(handle, _ct));
+        return new RpcRemoteStream(GetInbound(handle, RpcStreamKind.Binary));
     }
 
     public Pipe GetPipe(RpcStreamHandle handle)
     {
-        EnsureEnabled();
-        EnsureKind(handle, RpcStreamKind.Binary);
-        return RpcPipeBridge.CreateReadablePipe(_streams!.GetOrRegisterInbound(handle, _ct), _ct);
+        return RpcPipeBridge.CreateReadablePipe(GetInbound(handle, RpcStreamKind.Binary), _ct);
     }
 
     public IAsyncEnumerable<T> GetAsyncEnumerable<T>(RpcStreamHandle handle)
     {
-        EnsureEnabled();
-        EnsureKind(handle, RpcStreamKind.Items);
         return new RpcRemoteAsyncEnumerable<T>(
-            _streams!.GetOrRegisterInbound(handle, _ct),
+            GetInbound(handle, RpcStreamKind.Items),
             _serializer!);
     }
 
@@ -122,6 +119,15 @@ public sealed class RpcStreamingContext : IRpcStreamingContext
             _streams.RemoveOutbound(handle.StreamId);
             throw;
         }
+    }
+
+    private RpcStreamReceiver GetInbound(RpcStreamHandle handle, RpcStreamKind expected)
+    {
+        EnsureEnabled();
+        EnsureKind(handle, expected);
+        var receiver = _streams!.GetOrRegisterInbound(handle, _ct);
+        (_inboundStreamIds ??= new HashSet<int>()).Add(receiver.Handle.StreamId);
+        return receiver;
     }
 
     private void EnsureEnabled()

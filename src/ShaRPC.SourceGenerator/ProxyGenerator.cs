@@ -343,7 +343,7 @@ internal static class ProxyGenerator
         }
 
         var arrayName = locals.Reserve("__sharpc_streams", ct);
-        var attachmentExpressions = new System.Collections.Generic.List<string>(streamCount);
+        var reservations = new System.Collections.Generic.List<(string HandleName, string ReservedName, string Kind, string AttachmentExpression)>(streamCount);
         for (var i = 0; i < requestParameters.Count; i++)
         {
             ct.ThrowIfCancellationRequested();
@@ -355,29 +355,41 @@ internal static class ProxyGenerator
 
             var handleName = locals.Reserve("__sharpc_stream" + (i + 1), ct);
             handles[i] = handleName;
+            var reservedName = locals.Reserve(handleName + "Reserved", ct);
             var kind = parameter.StreamKind == ParameterStreamKind.AsyncEnumerable ? "Items" : "Binary";
-            sb.AppendLine($"{indent}var {handleName} = this._invoker.ReserveStream(global::ShaRPC.Core.Protocol.RpcStreamKind.{kind});");
-            attachmentExpressions.Add(BuildAttachmentExpression(parameter, handleName));
+            sb.AppendLine($"{indent}global::ShaRPC.Core.Protocol.RpcStreamHandle {handleName} = default;");
+            sb.AppendLine($"{indent}var {reservedName} = false;");
+            reservations.Add((handleName, reservedName, kind, BuildAttachmentExpression(parameter, handleName)));
         }
 
         sb.AppendLine($"{indent}global::ShaRPC.Core.Streaming.RpcStreamAttachment[] {arrayName};");
         sb.AppendLine($"{indent}try");
         sb.AppendLine($"{indent}{{");
-        sb.AppendLine($"{indent}    {arrayName} = new global::ShaRPC.Core.Streaming.RpcStreamAttachment[]");
-        sb.AppendLine($"{indent}    {{");
-        foreach (var expression in attachmentExpressions)
+        foreach (var reservation in reservations)
         {
             ct.ThrowIfCancellationRequested();
-            sb.AppendLine($"{indent}        {expression},");
+            sb.AppendLine($"{indent}    {reservation.HandleName} = this._invoker.ReserveStream(global::ShaRPC.Core.Protocol.RpcStreamKind.{reservation.Kind});");
+            sb.AppendLine($"{indent}    {reservation.ReservedName} = true;");
+        }
+        sb.AppendLine($"{indent}    {arrayName} = new global::ShaRPC.Core.Streaming.RpcStreamAttachment[]");
+        sb.AppendLine($"{indent}    {{");
+        foreach (var reservation in reservations)
+        {
+            ct.ThrowIfCancellationRequested();
+            sb.AppendLine($"{indent}        {reservation.AttachmentExpression},");
         }
         sb.AppendLine($"{indent}    }};");
         sb.AppendLine($"{indent}}}");
         sb.AppendLine($"{indent}catch");
         sb.AppendLine($"{indent}{{");
-        foreach (var handleName in handles.Values)
+        for (var i = reservations.Count - 1; i >= 0; i--)
         {
             ct.ThrowIfCancellationRequested();
-            sb.AppendLine($"{indent}    this._invoker.ReleaseStream({handleName});");
+            var reservation = reservations[i];
+            sb.AppendLine($"{indent}    if ({reservation.ReservedName})");
+            sb.AppendLine($"{indent}    {{");
+            sb.AppendLine($"{indent}        this._invoker.ReleaseStream({reservation.HandleName});");
+            sb.AppendLine($"{indent}    }}");
         }
         sb.AppendLine($"{indent}    throw;");
         sb.AppendLine($"{indent}}}");

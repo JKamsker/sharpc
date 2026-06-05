@@ -1,0 +1,182 @@
+using System.Buffers;
+using System.IO.Pipelines;
+using ShaRPC.Core;
+using ShaRPC.Core.Protocol;
+using ShaRPC.Core.Serialization;
+using ShaRPC.Core.Server;
+using ShaRPC.Core.Streaming;
+using ShaRPC.Serializers.MessagePack;
+using Xunit;
+
+namespace ShaRPC.Tests;
+
+public sealed class StreamingWave4RegressionTests
+{
+    private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(5);
+
+    [Fact]
+    public async Task ReceiverCancel_DoesNotWaitForCancelFrameSend()
+    {
+        var serializer = new MessagePackRpcSerializer();
+        var cancelSendStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var neverComplete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var streams = new RpcStreamManager(
+            serializer,
+            (frame, ct) =>
+            {
+                Assert.True(MessageFramer.TryReadFrameHeader(frame, out _, out var type));
+                if (type == MessageType.StreamCancel)
+                {
+                    cancelSendStarted.TrySetResult();
+                    return neverComplete.Task;
+                }
+
+                return Task.CompletedTask;
+            },
+            exceptionTransformer: null);
+        var receiver = streams.RegisterInboundResponse(
+            new RpcStreamHandle(602, RpcStreamKind.Binary),
+            CancellationToken.None);
+
+        await receiver.CancelAsync().AsTask().WaitAsync(TestTimeout);
+
+        await cancelSendStarted.Task.WaitAsync(TestTimeout);
+        Assert.Equal(0, streams.InboundReceiverCount);
+    }
+
+    [Fact]
+    public async Task RegisteredOutboundSet_DisposedBeforeStart_DisposesOwnedSources()
+    {
+        var serializer = new MessagePackRpcSerializer();
+        var streams = new RpcStreamManager(serializer, SendNoopAsync, exceptionTransformer: null);
+        var streamHandle = streams.ReserveOutbound(RpcStreamKind.Binary);
+        var pipeHandle = streams.ReserveOutbound(RpcStreamKind.Binary);
+        var source = new TrackingStream(new byte[] { 1, 2, 3 });
+        var pipe = new Pipe();
+        var outbound = streams.RegisterOutbound(
+            new[]
+            {
+                RpcStreamAttachment.FromStream(streamHandle, source, leaveOpen: false),
+                RpcStreamAttachment.FromPipe(pipeHandle, pipe, completeReader: true),
+            },
+            CancellationToken.None);
+
+        await outbound.DisposeAsync().AsTask().WaitAsync(TestTimeout);
+
+        Assert.True(source.Disposed);
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await pipe.Reader.ReadAsync().AsTask().WaitAsync(TestTimeout));
+        Assert.Equal(0, streams.OutboundSenderCount);
+    }
+
+    [Fact]
+    public async Task RequestCleanup_RemovesContextAcquiredReceiverNotDeclaredByRequest()
+    {
+        var serializer = new MessagePackRpcSerializer();
+        var streams = new RpcStreamManager(serializer, SendNoopAsync, exceptionTransformer: null);
+        var dispatcher = new UndeclaredStreamHandleDispatcher();
+        var inbound = new RpcPeerInboundDispatcher(
+            serializer,
+            new RpcPeerOptions { InboundQueueCapacity = null },
+            streams,
+            SendNoopAsync,
+            protocolError: static (_, _, _, _) => { },
+            dispatchError: static (_, _) => { });
+        inbound.AddDispatcher(dispatcher);
+        var undeclaredHandle = new RpcStreamHandle(800, RpcStreamKind.Binary);
+        using var body = serializer.SerializeToPayload(undeclaredHandle);
+        var frame = MessageFramer.FrameMessage(
+            serializer,
+            12,
+            MessageType.Request,
+            new RpcRequest
+            {
+                MessageId = 12,
+                ServiceName = dispatcher.ServiceName,
+                MethodName = "Go",
+            },
+            body.Memory.Span);
+
+        var accepted = await inbound.AcceptRequestAsync(frame, 12, CancellationToken.None);
+        if (!accepted)
+        {
+            frame.Dispose();
+        }
+
+        Assert.True(accepted);
+        await dispatcher.Invoked.Task.WaitAsync(TestTimeout);
+        await dispatcher.Acquired.Task.WaitAsync(TestTimeout);
+        await WaitUntilAsync(() => inbound.ActiveInboundCount == 0);
+        Assert.Equal(0, streams.InboundReceiverCount);
+        Assert.Equal(0, inbound.ActiveInboundCount);
+    }
+
+    private static Task SendNoopAsync(ReadOnlyMemory<byte> frame, CancellationToken ct) =>
+        Task.CompletedTask;
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        using var cts = new CancellationTokenSource(TestTimeout);
+        while (!condition())
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(10), cts.Token).ConfigureAwait(false);
+        }
+    }
+
+    private sealed class UndeclaredStreamHandleDispatcher : IServiceDispatcher
+    {
+        public string ServiceName => "Undeclared";
+
+        public TaskCompletionSource Invoked { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Acquired { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task DispatchAsync(
+            string method,
+            ReadOnlyMemory<byte> payload,
+            ISerializer serializer,
+            IInstanceRegistry registry,
+            IBufferWriter<byte> output,
+            CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
+        public Task DispatchAsync(
+            string method,
+            ReadOnlyMemory<byte> payload,
+            ISerializer serializer,
+            IInstanceRegistry registry,
+            IBufferWriter<byte> output,
+            IRpcStreamingContext streaming,
+            CancellationToken ct = default)
+        {
+            Invoked.TrySetResult();
+            _ = streaming.GetStream(serializer.Deserialize<RpcStreamHandle>(payload));
+            Acquired.TrySetResult();
+            throw new InvalidOperationException("Malformed streamed payload.");
+        }
+    }
+
+    private sealed class TrackingStream : MemoryStream
+    {
+        public TrackingStream(byte[] buffer)
+            : base(buffer)
+        {
+        }
+
+        public bool Disposed { get; private set; }
+
+        protected override void Dispose(bool disposing)
+        {
+            Disposed = true;
+            base.Dispose(disposing);
+        }
+
+        public override async ValueTask DisposeAsync()
+        {
+            Disposed = true;
+            await base.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+}

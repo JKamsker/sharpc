@@ -153,6 +153,57 @@ public sealed class StreamingGeneratorTests
     }
 
     [Fact]
+    public void StreamedArgumentReservations_AreInsideReservationCleanupTry()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.IO;
+            using System.Threading;
+            using System.Threading.Tasks;
+
+            namespace Streaming.ReservationCleanup
+            {
+                [ShaRpcService]
+                public interface IUpload
+                {
+                    Task<int> UploadAsync(Stream first, Stream second, CancellationToken ct = default);
+                }
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var driver = GeneratorTestHelper.CreateDriver().RunGenerators(compilation);
+        var runResult = driver.GetRunResult();
+
+        runResult.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)
+            .Should().BeEmpty();
+        EmitShouldSucceed(((CSharpCompilation)compilation).AddSyntaxTrees(runResult.GeneratedTrees));
+
+        var proxy = GeneratedSource(
+            runResult,
+            GeneratorTestHelper.HintName(
+                "Streaming.ReservationCleanup",
+                "IUpload",
+                GeneratorTestHelper.GeneratedKind.Proxy));
+        var methodIndex = proxy.IndexOf("UploadAsync", StringComparison.Ordinal);
+        var firstDeclaration = proxy.IndexOf("RpcStreamHandle __sharpc_stream1 = default;", methodIndex, StringComparison.Ordinal);
+        var tryIndex = proxy.IndexOf("try", firstDeclaration, StringComparison.Ordinal);
+        var firstReserve = proxy.IndexOf("__sharpc_stream1 = this._invoker.ReserveStream", tryIndex, StringComparison.Ordinal);
+        var secondReserve = proxy.IndexOf("__sharpc_stream2 = this._invoker.ReserveStream", firstReserve, StringComparison.Ordinal);
+        var firstRelease = proxy.IndexOf("this._invoker.ReleaseStream(__sharpc_stream1)", secondReserve, StringComparison.Ordinal);
+        var secondRelease = proxy.IndexOf("this._invoker.ReleaseStream(__sharpc_stream2)", secondReserve, StringComparison.Ordinal);
+
+        firstDeclaration.Should().BeGreaterOrEqualTo(0);
+        tryIndex.Should().BeGreaterThan(firstDeclaration);
+        firstReserve.Should().BeGreaterThan(tryIndex);
+        secondReserve.Should().BeGreaterThan(firstReserve);
+        firstRelease.Should().BeGreaterThan(secondReserve);
+        secondRelease.Should().BeGreaterThan(secondReserve);
+        proxy.Should().Contain("if (__sharpc_stream1Reserved)");
+        proxy.Should().Contain("if (__sharpc_stream2Reserved)");
+    }
+
+    [Fact]
     public void AsyncSiblingDirectAsyncEnumerableWithAddedCt_ReservesStreamsInsideEnumeration()
     {
         const string source = """
@@ -299,8 +350,8 @@ public sealed class StreamingGeneratorTests
                 "ILocalCollisionStreaming",
                 GeneratorTestHelper.GeneratedKind.Dispatcher));
 
-        proxy.Should().Contain("var __sharpc_stream11 =");
-        proxy.Should().Contain("var __sharpc_stream111 =");
+        proxy.Should().Contain("RpcStreamHandle __sharpc_stream11 = default;");
+        proxy.Should().Contain("RpcStreamHandle __sharpc_stream111 = default;");
         dispatcher.Should().Contain("var __sharpc_arg11 =");
         dispatcher.Should().Contain("var __sharpc_arg111 =");
     }

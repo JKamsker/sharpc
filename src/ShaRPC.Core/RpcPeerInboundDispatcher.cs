@@ -57,7 +57,7 @@ internal sealed class RpcPeerInboundDispatcher
             options.MaxConcurrentInboundDispatch,
             options.MaxInboundBytes,
             ProcessRequestAsync,
-            ReleaseRequest);
+            inbound => ReleaseRequest(inbound));
     }
 
     public void Start(CancellationToken loopCt)
@@ -284,11 +284,12 @@ internal sealed class RpcPeerInboundDispatcher
     private async Task ProcessRequestAsync(RpcPeerInboundRequest inbound)
     {
         var releaseRequest = true;
+        RpcStreamingContext? streaming = null;
         try
         {
             using (inbound.Frame)
             {
-                var streaming = new RpcStreamingContext(
+                streaming = new RpcStreamingContext(
                     _streams,
                     _serializer,
                     inbound.RequestCts.Token);
@@ -315,7 +316,7 @@ internal sealed class RpcPeerInboundDispatcher
 
                 if (responseStream is not null)
                 {
-                    StartResponseStream(inbound, responseStream);
+                    StartResponseStream(inbound, responseStream, streaming);
                     releaseRequest = false;
                 }
             }
@@ -344,14 +345,17 @@ internal sealed class RpcPeerInboundDispatcher
         {
             if (releaseRequest)
             {
-                ReleaseRequest(inbound);
+                ReleaseRequest(inbound, streaming?.AcquiredInboundStreamIds);
             }
         }
     }
 
-    private void StartResponseStream(RpcPeerInboundRequest inbound, RpcStreamAttachment stream)
+    private void StartResponseStream(
+        RpcPeerInboundRequest inbound,
+        RpcStreamAttachment stream,
+        RpcStreamingContext streaming)
     {
-        var task = ProcessResponseStreamAsync(inbound, stream);
+        var task = ProcessResponseStreamAsync(inbound, stream, streaming);
         if (!_activeStreamTasks.TryAdd(inbound.MessageId, task))
         {
             RpcDiagnostics.Report(
@@ -364,7 +368,10 @@ internal sealed class RpcPeerInboundDispatcher
         }
     }
 
-    private async Task ProcessResponseStreamAsync(RpcPeerInboundRequest inbound, RpcStreamAttachment stream)
+    private async Task ProcessResponseStreamAsync(
+        RpcPeerInboundRequest inbound,
+        RpcStreamAttachment stream,
+        RpcStreamingContext streaming)
     {
         var registered = false;
         try
@@ -396,17 +403,25 @@ internal sealed class RpcPeerInboundDispatcher
         finally
         {
             _activeStreamTasks.TryRemove(inbound.MessageId, out _);
-            ReleaseRequest(inbound);
+            ReleaseRequest(inbound, streaming.AcquiredInboundStreamIds);
         }
     }
 
-    private void ReleaseRequest(RpcPeerInboundRequest inbound)
+    private void ReleaseRequest(RpcPeerInboundRequest inbound, int[]? acquiredInboundStreamIds = null)
     {
         if (inbound.Request.Streams is { } streams)
         {
             foreach (var stream in streams)
             {
                 _streams.RemoveInbound(stream.StreamId);
+            }
+        }
+
+        if (acquiredInboundStreamIds is { Length: > 0 })
+        {
+            foreach (var streamId in acquiredInboundStreamIds)
+            {
+                _streams.RemoveInbound(streamId);
             }
         }
 
