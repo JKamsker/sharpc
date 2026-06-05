@@ -12,6 +12,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Expose the internal connect-published seam to the test assembly for a deterministic red→green
+         dispose-vs-connect race test. No external surface. -->
+    <InternalsVisibleTo Include="ShaRPC.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="..\..\docs\named-pipe-transport.md"
           Pack="true"
           PackagePath="\" />

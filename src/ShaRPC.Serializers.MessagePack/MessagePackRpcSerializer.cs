@@ -55,11 +55,23 @@ public sealed class MessagePackRpcSerializer : ISerializer
     /// </summary>
     public static MessagePackSerializerOptions CreateOptions(params IFormatterResolver[] resolvers)
     {
-        var extraCount = resolvers?.Length ?? 0;
+        // A null array (CreateOptions(null)) is legal C# for a params parameter and would otherwise be
+        // treated as "no resolvers", silently dropping all the caller's custom formatters — the same
+        // silent failure the null-element guard below prevents. Reject it eagerly. CreateOptions() with
+        // no arguments still receives an empty (non-null) array and is unaffected.
+        if (resolvers is null)
+        {
+            throw new ArgumentNullException(nameof(resolvers));
+        }
+
+        var extraCount = resolvers.Length;
         var effectiveResolvers = new IFormatterResolver[extraCount + 2];
         for (var i = 0; i < extraCount; i++)
         {
-            effectiveResolvers[i] = resolvers![i];
+            // Reject null elements eagerly: a null slipped into CompositeResolver.Create otherwise
+            // fails opaquely on the first Serialize/Deserialize, far from the configuration mistake.
+            effectiveResolvers[i] = resolvers[i]
+                ?? throw new ArgumentException("Resolvers must not contain null elements.", nameof(resolvers));
         }
 
         effectiveResolvers[extraCount] = StandardResolver.Instance;
@@ -84,12 +96,30 @@ public sealed class MessagePackRpcSerializer : ISerializer
 
     public T Deserialize<T>(ReadOnlyMemory<byte> data)
     {
-        return MessagePackSerializer.Deserialize<T>(data, _options);
+        var value = MessagePackSerializer.Deserialize<T>(data, _options, out var bytesRead, CancellationToken.None);
+        ThrowIfTrailingBytes(data.Length, bytesRead);
+        return value;
     }
 
     public object? Deserialize(ReadOnlyMemory<byte> data, Type type)
     {
-        return MessagePackSerializer.Deserialize(type, data, _options);
+        if (type is null)
+        {
+            throw new ArgumentNullException(nameof(type));
+        }
+
+        var reader = new MessagePackReader(data);
+        var value = MessagePackSerializer.Deserialize(type, ref reader, _options);
+        ThrowIfTrailingBytes(data.Length, checked((int)reader.Consumed));
+        return value;
+    }
+
+    private static void ThrowIfTrailingBytes(int totalLength, int bytesRead)
+    {
+        if (bytesRead != totalLength)
+        {
+            throw new MessagePackSerializationException("Trailing bytes after serialized value.");
+        }
     }
 
     private sealed class ReadOnlyMemoryByteFormatter : IMessagePackFormatter<ReadOnlyMemory<byte>>

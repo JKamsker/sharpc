@@ -9,4 +9,10 @@
     <ProjectReference Include="..\ShaRPC.Core\ShaRPC.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Expose the internal _pendingAccept consume seam to the test assembly for a deterministic
+         red→green race test. No external surface. -->
+    <InternalsVisibleTo Include="ShaRPC.Tests" />
+  </ItemGroup>
+
 </Project>

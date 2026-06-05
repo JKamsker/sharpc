@@ -126,7 +126,10 @@ public sealed class TcpConnection : IRpcChannel
             // too-small buffer and leaking it. Mirrors StreamConnection.ValidateIncomingLength.
             if (totalLength < MessageFramer.HeaderSize || totalLength > MessageFramer.MaxMessageSize)
             {
-                throw new InvalidOperationException($"Invalid message length: {totalLength}");
+                // A malformed length from the peer is invalid inbound DATA, not a local state error.
+                // Matches StreamConnection.ValidateIncomingLength and MessageFramer.ReadMessageAsync so
+                // the IRpcChannel contract surfaces one exception type across every transport.
+                throw new InvalidDataException($"Invalid ShaRPC frame length: {totalLength}.");
             }
 
             // Rent the full frame buffer and write back the length prefix we already consumed.

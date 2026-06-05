@@ -79,10 +79,7 @@ internal static class AsyncInterfaceGenerator
             if (i > 0) paramList.Append(", ");
             var p = s.Parameters[i];
             paramList.Append(p.RefKindKeyword).Append(p.Type).Append(' ').Append(p.Name);
-            if (p.IsCancellationToken && p.HasDefaultValue)
-            {
-                paramList.Append(" = default");
-            }
+            ProxyGenerationHelpers.AppendDefaultValue(paramList, p);
         }
 
         sb.AppendLine($"        {returnText} {s.Name}({paramList});");

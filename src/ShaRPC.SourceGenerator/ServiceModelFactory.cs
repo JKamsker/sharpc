@@ -87,6 +87,17 @@ internal static class ServiceModelFactory
         ct.ThrowIfCancellationRequested();
 
         var serviceName = GetConfiguredServiceName(context) ?? interfaceSymbol.Name;
+        if (string.IsNullOrWhiteSpace(serviceName))
+        {
+            // An explicit empty/whitespace [ShaRpcService(Name = "")] compiles but no inbound call can ever
+            // match the empty wire name, so every dispatch fails at runtime. Reject it at build time.
+            return RejectedService(
+                displayName,
+                "[ShaRpcService(Name = ...)] wire name must not be empty or whitespace",
+                serviceLocation,
+                qualifiedInterfaceName);
+        }
+
         var cancellationTokenSymbol = context.SemanticModel.Compilation.GetTypeByMetadataName(CancellationTokenFullName);
         var methods = new List<MethodModel>();
         var methodLocations = new List<DiagnosticLocation>();
@@ -185,7 +196,8 @@ internal static class ServiceModelFactory
                 Namespace: serviceNamespace,
                 InterfaceName: interfaceSymbol.Name,
                 ServiceName: LiteralHelpers.EscapeStringLiteral(serviceName),
-                Methods: methods.ToEquatableArray()),
+                Methods: methods.ToEquatableArray(),
+                RawServiceName: serviceName),
             Error: null,
             MethodDiagnostics: methodDiagnostics.ToEquatableArray(),
             MethodLocations: methodLocations.ToEquatableArray(),

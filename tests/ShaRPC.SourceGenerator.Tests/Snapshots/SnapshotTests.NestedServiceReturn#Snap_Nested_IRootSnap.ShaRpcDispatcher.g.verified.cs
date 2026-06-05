@@ -28,8 +28,40 @@ namespace Snap.Nested
                 {
                     var arg = serializer.Deserialize<string>(payload);
                     var __sub = await _service.GetSubAsync(arg);
-                    var __subId = registry.Register("ISubSnap", __sub);
-                    serializer.Serialize(output, new global::ShaRPC.Core.Protocol.ServiceHandle { ServiceName = "ISubSnap", InstanceId = __subId });
+                    string __subId;
+                    try
+                    {
+                        __subId = registry.Register("ISubSnap", __sub);
+                    }
+                    catch
+                    {
+                        try
+                        {
+                            if (__sub is global::System.IAsyncDisposable __ad)
+                            {
+                                await __ad.DisposeAsync().ConfigureAwait(false);
+                            }
+                            else if (__sub is global::System.IDisposable __d)
+                            {
+                                __d.Dispose();
+                            }
+                        }
+                        catch
+                        {
+                            // Best-effort cleanup of the orphaned sub-service: a faulting disposer must
+                            // not replace the original registration failure that is about to be rethrown.
+                        }
+                        throw;
+                    }
+                    try
+                    {
+                        serializer.Serialize(output, new global::ShaRPC.Core.Protocol.ServiceHandle { ServiceName = "ISubSnap", InstanceId = __subId });
+                    }
+                    catch
+                    {
+                        registry.Release("ISubSnap", __subId);
+                        throw;
+                    }
                     return;
                 }
                 default:
@@ -51,8 +83,40 @@ namespace Snap.Nested
                 {
                     var arg = serializer.Deserialize<string>(payload);
                     var __sub = await __inst.GetSubAsync(arg);
-                    var __subId = registry.Register("ISubSnap", __sub);
-                    serializer.Serialize(output, new global::ShaRPC.Core.Protocol.ServiceHandle { ServiceName = "ISubSnap", InstanceId = __subId });
+                    string __subId;
+                    try
+                    {
+                        __subId = registry.Register("ISubSnap", __sub);
+                    }
+                    catch
+                    {
+                        try
+                        {
+                            if (__sub is global::System.IAsyncDisposable __ad)
+                            {
+                                await __ad.DisposeAsync().ConfigureAwait(false);
+                            }
+                            else if (__sub is global::System.IDisposable __d)
+                            {
+                                __d.Dispose();
+                            }
+                        }
+                        catch
+                        {
+                            // Best-effort cleanup of the orphaned sub-service: a faulting disposer must
+                            // not replace the original registration failure that is about to be rethrown.
+                        }
+                        throw;
+                    }
+                    try
+                    {
+                        serializer.Serialize(output, new global::ShaRPC.Core.Protocol.ServiceHandle { ServiceName = "ISubSnap", InstanceId = __subId });
+                    }
+                    catch
+                    {
+                        registry.Release("ISubSnap", __subId);
+                        throw;
+                    }
                     return;
                 }
                 default:

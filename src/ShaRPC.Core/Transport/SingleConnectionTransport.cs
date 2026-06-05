@@ -63,6 +63,8 @@ public sealed class SingleConnectionServerTransport : IServerTransport
 
     public Task StartAsync(CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
+
         if (Volatile.Read(ref _disposed) != 0)
         {
             throw new ObjectDisposedException(nameof(SingleConnectionServerTransport));
@@ -89,6 +91,11 @@ public sealed class SingleConnectionServerTransport : IServerTransport
             return _connection;
         }
 
+        // Honour an already-cancelled token before registering on the shared one-shot _stopped TCS: a
+        // pre-cancelled token would otherwise fire ct.Register synchronously, completing _stopped and
+        // spuriously unblocking every other parked accept (bricking the transport). Mirrors TcpServerTransport.
+        ct.ThrowIfCancellationRequested();
+
         using (ct.Register(static state =>
             ((TaskCompletionSource<bool>)state!).TrySetResult(true), _stopped))
         {
@@ -96,7 +103,10 @@ public sealed class SingleConnectionServerTransport : IServerTransport
         }
 
         ct.ThrowIfCancellationRequested();
-        throw new OperationCanceledException();
+
+        // Associate the cancellation with the caller's token even when StopAsync (not the token) released
+        // the parked accept, so token-scoped catch filters observe it — matching Tcp/NamedPipe transports.
+        throw new OperationCanceledException(ct);
     }
 
     public Task StopAsync(CancellationToken ct = default)

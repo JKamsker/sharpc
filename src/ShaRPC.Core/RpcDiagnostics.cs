@@ -15,7 +15,9 @@ public static class RpcDiagnostics
 
     internal static void Report(string operation, Exception error)
     {
-        Trace.TraceError($"{operation}: {error.GetType().Name}: {error.Message}");
+        // Build the message inside the guard: a custom exception's virtual Message getter can throw, and
+        // that must not escape Report and break subscriber isolation.
+        SafeTrace(() => $"{operation}: {error.GetType().Name}: {error.Message}");
 
         var handler = Error;
         if (handler is null)
@@ -32,8 +34,23 @@ public static class RpcDiagnostics
             }
             catch (Exception subscriberError)
             {
-                Trace.TraceError($"ShaRPC diagnostic handler failed: {subscriberError}");
+                // A faulting subscriber's own ToString() can throw too, so format inside the guard.
+                SafeTrace(() => $"ShaRPC diagnostic handler failed: {subscriberError}");
             }
+        }
+    }
+
+    private static void SafeTrace(Func<string> messageFactory)
+    {
+        try
+        {
+            Trace.TraceError(messageFactory());
+        }
+        catch
+        {
+            // Best-effort fallback logging only: neither building the message (a virtual Message/ToString
+            // may throw) nor a hostile/faulting TraceListener must break diagnostic subscriber isolation
+            // by propagating out of Report.
         }
     }
 }

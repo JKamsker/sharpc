@@ -37,7 +37,8 @@ internal sealed record ServiceModel(
     string Namespace,
     string InterfaceName,
     string ServiceName,
-    EquatableArray<MethodModel> Methods);
+    EquatableArray<MethodModel> Methods,
+    string RawServiceName = "");
 
 /// <summary>
 /// Immutable, value-equatable representation of a service method. When
@@ -61,7 +62,8 @@ internal sealed record MethodModel(
     string ConstraintClauses = "",
     bool RequiresDispatcherReceiverCast = false,
     string? UnsupportedReason = null,
-    SubServiceInfo? SubService = null);
+    SubServiceInfo? SubService = null,
+    string RawRpcName = "");
 
 /// <summary>
 /// Immutable, value-equatable representation of a method parameter.
@@ -69,6 +71,10 @@ internal sealed record MethodModel(
 /// signature but are not serialized into the RPC payload.
 /// <see cref="RefKindKeyword"/> holds the C# modifier text (<c>""</c>, <c>"ref "</c>,
 /// <c>"in "</c>, or <c>"out "</c>).
+/// <see cref="DefaultValueLiteral"/> holds the C# literal text of a non-cancellation-token
+/// parameter's explicit default value (e.g. <c>"\"x\""</c>, <c>"5"</c>, <c>"null"</c>), so the
+/// generated proxy and async-sibling signatures preserve it; empty when there is no default or it
+/// cannot be expressed as a literal. Cancellation-token defaults are emitted as <c>= default</c>.
 /// </summary>
 internal sealed record ParameterModel(
     string Name,
@@ -76,7 +82,8 @@ internal sealed record ParameterModel(
     string SignatureType,
     string RefKindKeyword = "",
     bool IsCancellationToken = false,
-    bool HasDefaultValue = false);
+    bool HasDefaultValue = false,
+    string DefaultValueLiteral = "");
 
 /// <summary>
 /// A <see cref="ServiceModel"/> paired with its computed async-sibling projection. Lives

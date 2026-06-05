@@ -87,9 +87,13 @@ internal static class SubServicePayloadInspector
         var contains = CanInspectDtoMembers(named) &&
             DtoMembersContainShaRpcServiceInterface(named, ct, visitedOriginalDefinitions, cache);
         visitedOriginalDefinitions.Remove(named.OriginalDefinition);
-        if (cache is not null)
+
+        // Only positive results are cycle-independent and safe to cache. A false computed here may
+        // be a cycle-break artifact (the type's traversal hit an in-progress ancestor and returned
+        // false), so caching it could poison a later independent lookup of the same type.
+        if (cache is not null && contains)
         {
-            cache.SetSubServicePayloadResult(named, contains);
+            cache.SetSubServicePayloadResult(named, result: true);
         }
 
         return contains;

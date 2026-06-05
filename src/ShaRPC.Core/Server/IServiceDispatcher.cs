@@ -47,5 +47,6 @@ public interface IServiceDispatcher
         IBufferWriter<byte> output,
         CancellationToken ct = default) =>
         throw new ShaRpcNotFoundException(
-            $"Service '{ServiceName}' does not support instance-scoped dispatch.");
+            $"Service '{ServiceName}' does not support instance-scoped dispatch.",
+            ShaRpcNotFoundException.NotFoundKind.Instance);
 }

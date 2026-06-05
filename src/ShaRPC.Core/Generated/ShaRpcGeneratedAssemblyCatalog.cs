@@ -27,10 +27,28 @@ internal static class ShaRpcGeneratedAssemblyCatalog
         }
         catch
         {
-            s_registrationAttempts.TryRemove(assembly, out _);
+            EvictFaultedAttempt(assembly, registration);
             throw;
         }
     }
+
+    /// <summary>
+    /// Removes only the faulted attempt this caller actually holds. A key-only TryRemove could evict a
+    /// fresh successor <see cref="Lazy{T}"/> that another thread installed after our attempt faulted,
+    /// discarding that successor's registration; the value-comparing <see cref="ICollection{T}.Remove"/>
+    /// is a no-op unless the stored Lazy is still ours (reference equality, since Lazy does not override
+    /// Equals). Internal so a deterministic test can exercise the successor-preservation behaviour.
+    /// </summary>
+    internal static void EvictFaultedAttempt(Assembly assembly, Lazy<bool> faultedRegistration) =>
+        ((ICollection<KeyValuePair<Assembly, Lazy<bool>>>)s_registrationAttempts)
+            .Remove(new KeyValuePair<Assembly, Lazy<bool>>(assembly, faultedRegistration));
+
+    // --- Test accessors (for the deterministic fault-recovery successor-preservation test) ---
+    internal static void SetRegistrationAttemptForTest(Assembly assembly, Lazy<bool> attempt) =>
+        s_registrationAttempts[assembly] = attempt;
+
+    internal static Lazy<bool>? GetRegistrationAttemptForTest(Assembly assembly) =>
+        s_registrationAttempts.TryGetValue(assembly, out var attempt) ? attempt : null;
 
     private static bool RegisterGeneratedFactory(Assembly assembly)
     {

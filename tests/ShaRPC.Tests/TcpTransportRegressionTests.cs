@@ -57,7 +57,7 @@ public sealed class TcpTransportRegressionTests
         await rawClient.GetStream().WriteAsync(prefix);
         await rawClient.GetStream().FlushAsync();
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        await Assert.ThrowsAsync<InvalidDataException>(
             () => serverConnection.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(2)));
     }
 

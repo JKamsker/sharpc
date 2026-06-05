@@ -16,13 +16,22 @@ public sealed class StreamConnection : IRpcChannel
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private readonly string _remoteEndpoint;
     private readonly int _maxMessageSize;
+    private readonly TimeSpan _frameReadIdleTimeout;
     private int _disposed;
 
+    /// <summary>
+    /// Creates a framed connection over <paramref name="stream"/>. <paramref name="frameReadIdleTimeout"/>
+    /// mirrors <c>TcpConnection</c>'s slow-loris defense: it bounds how long an in-progress frame body read
+    /// may stall with no data before the connection is torn down (surfaced as an <see cref="IOException"/>).
+    /// Pass <see langword="null"/> or <see cref="Timeout.InfiniteTimeSpan"/> to leave body reads untimed
+    /// (the default, preserving the original behaviour for clients and direct callers).
+    /// </summary>
     public StreamConnection(
         Stream stream,
         string? remoteEndpoint = null,
         bool ownsStream = true,
-        int maxMessageSize = MessageFramer.MaxMessageSize)
+        int maxMessageSize = MessageFramer.MaxMessageSize,
+        TimeSpan? frameReadIdleTimeout = null)
     {
         if (maxMessageSize < MessageFramer.HeaderSize)
         {
@@ -32,11 +41,28 @@ public sealed class StreamConnection : IRpcChannel
                 "Maximum message size must be at least the ShaRPC header size.");
         }
 
+        var timeout = frameReadIdleTimeout ?? Timeout.InfiniteTimeSpan;
+        if (timeout != Timeout.InfiniteTimeSpan &&
+            (timeout <= TimeSpan.Zero || timeout.TotalMilliseconds > int.MaxValue))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(frameReadIdleTimeout),
+                timeout,
+                "Frame read idle timeout must be positive (at most int.MaxValue ms) or Timeout.InfiniteTimeSpan.");
+        }
+
         _stream = stream ?? throw new ArgumentNullException(nameof(stream));
         _ownsStream = ownsStream;
         _remoteEndpoint = remoteEndpoint ?? "stream";
         _maxMessageSize = maxMessageSize;
+        _frameReadIdleTimeout = timeout;
     }
+
+    /// <summary>
+    /// Configured inter-read idle timeout for in-progress frame body reads
+    /// (<see cref="Timeout.InfiniteTimeSpan"/> when disabled). Test/transport seam.
+    /// </summary>
+    internal TimeSpan FrameReadIdleTimeout => _frameReadIdleTimeout;
 
     public bool IsConnected =>
         Volatile.Read(ref _disposed) == 0 &&
@@ -80,7 +106,9 @@ public sealed class StreamConnection : IRpcChannel
         var lengthBuffer = ArrayPool<byte>.Shared.Rent(4);
         try
         {
-            var read = await ReadExactAsync(_stream, lengthBuffer.AsMemory(0, 4), ct).ConfigureAwait(false);
+            // The first read of the length prefix waits for the next frame and is not timed (an idle
+            // connection is legitimate); once any byte arrives, the rest of the frame is timed.
+            var read = await ReadExactAsync(lengthBuffer.AsMemory(0, 4), ct, timeFirstRead: false).ConfigureAwait(false);
             if (read < 4)
             {
                 return Payload.Empty;
@@ -92,14 +120,11 @@ public sealed class StreamConnection : IRpcChannel
             var frame = Payload.Rent(totalLength);
             BinaryPrimitives.WriteInt32LittleEndian(frame.Memory.Span.Slice(0, 4), totalLength);
 
-            if (totalLength == 4)
-            {
-                return frame;
-            }
-
             try
             {
-                read = await ReadExactAsync(_stream, frame.Memory.Slice(4), ct).ConfigureAwait(false);
+                // The header has fully arrived, so a frame is in progress: time every body read so a
+                // peer that stalls mid-frame cannot pin this rented buffer indefinitely (slow-loris).
+                read = await ReadExactAsync(frame.Memory.Slice(4), ct, timeFirstRead: true).ConfigureAwait(false);
                 if (read < totalLength - 4)
                 {
                     frame.Dispose();
@@ -156,12 +181,15 @@ public sealed class StreamConnection : IRpcChannel
         }
     }
 
-    private static async Task<int> ReadExactAsync(Stream stream, Memory<byte> buffer, CancellationToken ct)
+    private async Task<int> ReadExactAsync(Memory<byte> buffer, CancellationToken ct, bool timeFirstRead)
     {
         var totalRead = 0;
         while (totalRead < buffer.Length)
         {
-            var read = await stream.ReadAsync(buffer.Slice(totalRead), ct).ConfigureAwait(false);
+            // Apply the idle timeout once a frame is in progress: always for body reads, and for the
+            // length prefix only after its first byte has arrived (the initial wait is idle, not a stall).
+            var read = await ReadChunkAsync(buffer.Slice(totalRead), ct, applyTimeout: timeFirstRead || totalRead > 0)
+                .ConfigureAwait(false);
             if (read == 0)
             {
                 return totalRead;
@@ -171,6 +199,26 @@ public sealed class StreamConnection : IRpcChannel
         }
 
         return totalRead;
+    }
+
+    private async Task<int> ReadChunkAsync(Memory<byte> buffer, CancellationToken ct, bool applyTimeout)
+    {
+        if (!applyTimeout || _frameReadIdleTimeout == Timeout.InfiniteTimeSpan)
+        {
+            return await _stream.ReadAsync(buffer, ct).ConfigureAwait(false);
+        }
+
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(_frameReadIdleTimeout);
+        try
+        {
+            return await _stream.ReadAsync(buffer, timeoutCts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !ct.IsCancellationRequested)
+        {
+            throw new IOException(
+                $"Inbound frame read stalled for longer than {_frameReadIdleTimeout} with no data (possible slow-loris peer).");
+        }
     }
 
     private static async ValueTask DisposeStreamAsync(Stream stream)
