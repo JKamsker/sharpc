@@ -12,6 +12,7 @@ internal sealed class RpcStreamManager
 
     private readonly ConcurrentDictionary<int, RpcStreamReceiver> _receivers = new();
     private readonly ConcurrentDictionary<int, byte> _canceledOutbound = new();
+    private readonly ConcurrentDictionary<int, byte> _canceledInbound = new();
     private readonly ConcurrentDictionary<int, int> _pendingCredits = new();
     private readonly ConcurrentDictionary<int, byte> _reservedOutbound = new();
     private readonly ConcurrentDictionary<int, RpcStreamSendState> _senders = new();
@@ -36,10 +37,8 @@ internal sealed class RpcStreamManager
 
     internal int PendingCreditCount => _pendingCredits.Count;
 
-    // Deterministic coverage for the reserved-to-released pending-credit race; null in production.
+    // Deterministic coverage hooks for outbound registration races; null in production.
     internal Action<int>? AfterReservedOutboundCreditObservedForTest { get; set; }
-
-    // Deterministic coverage for sender-miss-to-reservation-check races; null in production.
     internal Action<int>? AfterOutboundSenderMissForTest { get; set; }
 
     public RpcStreamReceiver GetOrRegisterInbound(RpcStreamHandle handle, CancellationToken ct)
@@ -165,6 +164,7 @@ internal sealed class RpcStreamManager
             throw new ShaRpcProtocolException($"Inbound stream id '{handle.StreamId}' is already active.");
         }
 
+        _canceledInbound.TryRemove(handle.StreamId, out _);
         receiver.SendCreditBestEffort(WindowSize, ct);
         return receiver;
     }
@@ -227,6 +227,11 @@ internal sealed class RpcStreamManager
     {
         if (!_receivers.TryGetValue(streamId, out var receiver))
         {
+            if (_canceledInbound.ContainsKey(streamId))
+            {
+                frame.Dispose();
+                return true;
+            }
             return false;
         }
 
@@ -241,12 +246,23 @@ internal sealed class RpcStreamManager
         if (_receivers.TryGetValue(streamId, out var receiver))
         {
             receiver.Complete(error);
+            return;
         }
+
+        _canceledInbound.TryRemove(streamId, out _);
     }
 
     public bool TryCompleteInboundError(Payload frame)
     {
-        if (!MessageFramer.TryReadFrame(frame.Memory, out var streamId, out _, out var envelope, out _))
+        if (!MessageFramer.TryReadFrameHeader(frame.Memory, out var streamId, out _))
+        {
+            return false;
+        }
+        if (_canceledInbound.TryRemove(streamId, out _))
+        {
+            return true;
+        }
+        if (!MessageFramer.TryReadFrame(frame.Memory, out _, out _, out var envelope, out _))
         {
             return false;
         }
@@ -350,6 +366,12 @@ internal sealed class RpcStreamManager
     internal void RemoveCompletedInbound(int streamId) =>
         _receivers.TryRemove(streamId, out _);
 
+    internal void RemoveCanceledInbound(int streamId)
+    {
+        _canceledInbound.TryAdd(streamId, 0);
+        _receivers.TryRemove(streamId, out _);
+    }
+
     public void RemoveOutbound(int streamId)
     {
         ClearOutboundTracking(streamId);
@@ -432,6 +454,8 @@ internal sealed class RpcStreamManager
         {
             sender.Cancel();
         }
+
+        _canceledInbound.Clear();
     }
 
     private RpcStreamSendState GetSender(int streamId) =>
@@ -446,7 +470,6 @@ internal sealed class RpcStreamManager
             state.Cancel();
             throw new OperationCanceledException("Stream was canceled before registration.");
         }
-
         if (_pendingCredits.TryRemove(state.StreamId, out var credits))
         {
             state.AddCredit(credits);

@@ -7,6 +7,9 @@ internal static class RpcPipeBridge
     public static Pipe CreateReadablePipe(RpcStreamReceiver receiver, CancellationToken ct)
     {
         var pipe = new Pipe();
+#pragma warning disable CS0618
+        pipe.Writer.OnReaderCompleted(static (_, state) => ((RpcStreamReceiver)state!).Cancel(), receiver);
+#pragma warning restore CS0618
         _ = PumpAsync(receiver, pipe.Writer, ct);
         return pipe;
     }

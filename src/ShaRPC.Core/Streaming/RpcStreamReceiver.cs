@@ -64,8 +64,9 @@ internal sealed class RpcStreamReceiver
             return true;
         }
 
-        chunk.Dispose();
-        Complete(new InvalidDataException("Stream receiver window was exceeded."));
+        chunk.DisposeWithoutCredit();
+        Abort(new InvalidDataException("Stream receiver window was exceeded."));
+        _manager.RemoveCompletedInbound(Handle.StreamId);
         return false;
     }
 
@@ -112,24 +113,25 @@ internal sealed class RpcStreamReceiver
 
     public void Cancel()
     {
-        if (Volatile.Read(ref _completed) == 0)
+        var active = Volatile.Read(ref _completed) == 0;
+        RemoveBeforeCancelDrain(active);
+        Abort(new OperationCanceledException());
+        if (active)
         {
             _ = SendCancelBestEffortAsync();
         }
-
-        Abort(new OperationCanceledException());
-        _manager.RemoveInbound(Handle.StreamId);
     }
 
     public ValueTask CancelAsync()
     {
-        if (Volatile.Read(ref _completed) == 0)
+        var active = Volatile.Read(ref _completed) == 0;
+        RemoveBeforeCancelDrain(active);
+        Abort(new OperationCanceledException());
+        if (active)
         {
             _ = SendCancelBestEffortAsync();
         }
 
-        Abort(new OperationCanceledException());
-        _manager.RemoveInbound(Handle.StreamId);
         return default;
     }
 
@@ -151,6 +153,18 @@ internal sealed class RpcStreamReceiver
         catch (Exception ex)
         {
             RpcDiagnostics.Report("Stream cancel notification failed", ex);
+        }
+    }
+
+    private void RemoveBeforeCancelDrain(bool active)
+    {
+        if (active)
+        {
+            _manager.RemoveCanceledInbound(Handle.StreamId);
+        }
+        else
+        {
+            _manager.RemoveCompletedInbound(Handle.StreamId);
         }
     }
 

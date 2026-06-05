@@ -25,4 +25,7 @@ internal sealed class RpcStreamChunk : IDisposable
             _owner.ReleaseCredit();
         }
     }
+
+    public void DisposeWithoutCredit() =>
+        Interlocked.Exchange(ref _frame, null)?.Dispose();
 }
