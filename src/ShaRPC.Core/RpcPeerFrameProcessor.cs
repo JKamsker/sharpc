@@ -53,7 +53,13 @@ internal sealed class RpcPeerFrameProcessor
                 _protocolError(messageId, messageType, "Unknown stream id.", null);
                 return true;
             case MessageType.StreamComplete:
-                _streams.CompleteInbound(messageId);
+                if (!RpcStreamCompleteFrameReader.TryRead(frame, out var streamId))
+                {
+                    _protocolError(messageId, messageType, "Malformed stream complete frame.", null);
+                    return true;
+                }
+
+                _streams.CompleteInbound(streamId);
                 return true;
             case MessageType.StreamError:
                 if (!_streams.TryCompleteInboundError(frame))

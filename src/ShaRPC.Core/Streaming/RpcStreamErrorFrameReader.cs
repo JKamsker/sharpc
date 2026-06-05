@@ -18,7 +18,8 @@ internal static class RpcStreamErrorFrameReader
                 out streamId,
                 out var type,
                 out var envelope,
-                out _) ||
+                out var payload) ||
+            !payload.IsEmpty ||
             type != MessageType.StreamError)
         {
             return false;
@@ -27,11 +28,20 @@ internal static class RpcStreamErrorFrameReader
         try
         {
             response = serializer.Deserialize<RpcResponse>(envelope);
-            return true;
         }
         catch
         {
             return false;
         }
+
+        if (response.IsSuccess ||
+            response.MessageId != streamId ||
+            response.Stream is not null)
+        {
+            response = default;
+            return false;
+        }
+
+        return true;
     }
 }

@@ -7,9 +7,8 @@ internal sealed class RpcCanceledInboundStreams
     internal const int Capacity = 1024;
 
     private readonly object _gate = new();
-    private readonly Queue<(int StreamId, long Version)> _order = new();
-    private readonly Dictionary<int, long> _streamIds = new();
-    private long _version;
+    private readonly LinkedList<int> _order = new();
+    private readonly Dictionary<int, LinkedListNode<int>> _streamIds = new();
 
     public int Count
     {
@@ -18,6 +17,17 @@ internal sealed class RpcCanceledInboundStreams
             lock (_gate)
             {
                 return _streamIds.Count;
+            }
+        }
+    }
+
+    internal int TrackingCount
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _order.Count;
             }
         }
     }
@@ -31,9 +41,8 @@ internal sealed class RpcCanceledInboundStreams
                 return;
             }
 
-            var version = ++_version;
-            _streamIds.Add(streamId, version);
-            _order.Enqueue((streamId, version));
+            var node = _order.AddLast(streamId);
+            _streamIds.Add(streamId, node);
             Trim();
         }
     }
@@ -53,7 +62,7 @@ internal sealed class RpcCanceledInboundStreams
     {
         lock (_gate)
         {
-            return _streamIds.Remove(streamId);
+            return RemoveLocked(streamId);
         }
     }
 
@@ -61,7 +70,7 @@ internal sealed class RpcCanceledInboundStreams
     {
         lock (_gate)
         {
-            _streamIds.Remove(streamId);
+            RemoveLocked(streamId);
         }
     }
 
@@ -82,16 +91,29 @@ internal sealed class RpcCanceledInboundStreams
         }
     }
 
+    private bool RemoveLocked(int streamId)
+    {
+        if (!_streamIds.Remove(streamId, out var node))
+        {
+            return false;
+        }
+
+        _order.Remove(node);
+        return true;
+    }
+
     private void Trim()
     {
-        while (_streamIds.Count > Capacity && _order.Count > 0)
+        while (_streamIds.Count > Capacity)
         {
-            var entry = _order.Dequeue();
-            if (_streamIds.TryGetValue(entry.StreamId, out var version) &&
-                version == entry.Version)
+            var first = _order.First;
+            if (first is null)
             {
-                _streamIds.Remove(entry.StreamId);
+                return;
             }
+
+            _order.RemoveFirst();
+            _streamIds.Remove(first.Value);
         }
     }
 }

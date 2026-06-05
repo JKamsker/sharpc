@@ -39,6 +39,8 @@ internal sealed class RpcStreamManager
 
     internal int CanceledInboundCount => _canceledInbound.Count;
 
+    internal int CanceledInboundTrackingCount => _canceledInbound.TrackingCount;
+
     // Deterministic coverage hooks for stream races; null in production.
     internal Action<int, RpcStreamReceiver>? AfterInboundReceiverObservedForTest { get; set; }
     internal Action<int>? AfterReservedOutboundCreditObservedForTest { get; set; }
