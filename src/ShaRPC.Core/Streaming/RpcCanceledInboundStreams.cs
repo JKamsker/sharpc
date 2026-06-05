@@ -66,6 +66,14 @@ internal sealed class RpcCanceledInboundStreams
         }
     }
 
+    public bool Contains(int streamId)
+    {
+        lock (_gate)
+        {
+            return _streamIds.ContainsKey(streamId);
+        }
+    }
+
     public void Remove(int streamId)
     {
         lock (_gate)
@@ -80,14 +88,6 @@ internal sealed class RpcCanceledInboundStreams
         {
             _streamIds.Clear();
             _order.Clear();
-        }
-    }
-
-    private bool Contains(int streamId)
-    {
-        lock (_gate)
-        {
-            return _streamIds.ContainsKey(streamId);
         }
     }
 

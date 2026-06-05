@@ -10,6 +10,7 @@ internal sealed class RpcStreamReceiver
 {
     private readonly Channel<RpcStreamChunk> _chunks;
     private readonly RpcStreamManager _manager;
+    private readonly object _completionGate = new();
     private RpcOutboundStreamSet? _outboundStreams;
     private int _completed;
 
@@ -97,26 +98,31 @@ internal sealed class RpcStreamReceiver
         }
     }
 
-    public void Complete(Exception? error = null)
+    public bool Complete(Exception? error = null)
     {
-        if (Interlocked.Exchange(ref _completed, 1) != 0)
+        RpcOutboundStreamSet? streams;
+        lock (_completionGate)
         {
-            return;
+            if (Interlocked.Exchange(ref _completed, 1) != 0)
+            {
+                return false;
+            }
+
+            _chunks.Writer.TryComplete(error);
+            streams = Interlocked.Exchange(ref _outboundStreams, null);
         }
 
-        _chunks.Writer.TryComplete(error);
-        if (Interlocked.Exchange(ref _outboundStreams, null) is { } streams)
+        if (streams is not null)
         {
             _ = streams.DisposeAsync();
         }
+
+        return true;
     }
 
     public void Cancel()
     {
-        var active = Volatile.Read(ref _completed) == 0;
-        RemoveBeforeCancelDrain(active);
-        Abort(new OperationCanceledException());
-        if (active)
+        if (CancelCore())
         {
             _ = SendCancelBestEffortAsync();
         }
@@ -124,24 +130,14 @@ internal sealed class RpcStreamReceiver
 
     public ValueTask CancelAsync()
     {
-        var active = Volatile.Read(ref _completed) == 0;
-        RemoveBeforeCancelDrain(active);
-        Abort(new OperationCanceledException());
-        if (active)
-        {
-            _ = SendCancelBestEffortAsync();
-        }
-
+        Cancel();
         return default;
     }
 
     internal void Abort(Exception? error = null)
     {
         Complete(error);
-        while (_chunks.Reader.TryRead(out var chunk))
-        {
-            chunk.Dispose();
-        }
+        DrainChunks();
     }
 
     private async Task SendCancelBestEffortAsync()
@@ -156,15 +152,53 @@ internal sealed class RpcStreamReceiver
         }
     }
 
-    private void RemoveBeforeCancelDrain(bool active)
+    private bool CancelCore()
     {
-        if (active)
-        {
-            _manager.RemoveCanceledInbound(Handle.StreamId);
-        }
-        else
+        var sendCancel = TryCompleteForCancel();
+        if (!sendCancel)
         {
             _manager.RemoveCompletedInbound(Handle.StreamId);
+        }
+
+        DrainChunks();
+        return sendCancel;
+    }
+
+    private bool TryCompleteForCancel()
+    {
+        RpcOutboundStreamSet? streams;
+        lock (_completionGate)
+        {
+            if (Volatile.Read(ref _completed) != 0)
+            {
+                return false;
+            }
+
+            _manager.AfterInboundCancelActiveObservedForTest?.Invoke(Handle.StreamId, this);
+            if (Volatile.Read(ref _completed) != 0)
+            {
+                return false;
+            }
+
+            Interlocked.Exchange(ref _completed, 1);
+            _manager.RemoveCanceledInbound(Handle.StreamId);
+            _chunks.Writer.TryComplete(new OperationCanceledException());
+            streams = Interlocked.Exchange(ref _outboundStreams, null);
+        }
+
+        if (streams is not null)
+        {
+            _ = streams.DisposeAsync();
+        }
+
+        return true;
+    }
+
+    private void DrainChunks()
+    {
+        while (_chunks.Reader.TryRead(out var chunk))
+        {
+            chunk.Dispose();
         }
     }
 

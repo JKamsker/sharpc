@@ -13,6 +13,7 @@ internal sealed class RpcStreamManager
     private readonly ConcurrentDictionary<int, RpcStreamReceiver> _receivers = new();
     private readonly ConcurrentDictionary<int, byte> _canceledOutbound = new();
     private readonly RpcCanceledInboundStreams _canceledInbound = new();
+    private readonly object _inboundGate = new();
     private readonly ConcurrentDictionary<int, int> _pendingCredits = new();
     private readonly ConcurrentDictionary<int, byte> _reservedOutbound = new();
     private readonly ConcurrentDictionary<int, RpcStreamSendState> _senders = new();
@@ -32,17 +33,14 @@ internal sealed class RpcStreamManager
     }
 
     internal int InboundReceiverCount => _receivers.Count;
-
     internal int OutboundSenderCount => _senders.Count;
-
     internal int PendingCreditCount => _pendingCredits.Count;
-
     internal int CanceledInboundCount => _canceledInbound.Count;
-
     internal int CanceledInboundTrackingCount => _canceledInbound.TrackingCount;
 
     // Deterministic coverage hooks for stream races; null in production.
     internal Action<int, RpcStreamReceiver>? AfterInboundReceiverObservedForTest { get; set; }
+    internal Action<int, RpcStreamReceiver>? AfterInboundCancelActiveObservedForTest { get; set; }
     internal Action<int>? AfterReservedOutboundCreditObservedForTest { get; set; }
     internal Action<int>? AfterOutboundSenderMissForTest { get; set; }
 
@@ -52,7 +50,6 @@ internal sealed class RpcStreamManager
         {
             throw new ShaRpcProtocolException("Stream id must not be zero.");
         }
-
         if (_receivers.TryGetValue(handle.StreamId, out var existing))
         {
             if (existing.Handle.Kind != handle.Kind)
@@ -63,13 +60,11 @@ internal sealed class RpcStreamManager
 
             return existing;
         }
-
         return RegisterInbound(handle, ct);
     }
 
     public RpcStreamReceiver RegisterInboundResponse(RpcStreamHandle handle, CancellationToken ct) =>
         RegisterInbound(handle, ct);
-
     internal RpcStreamHandle ReserveOutbound(RpcStreamKind kind)
     {
         RpcStreamValidation.ValidateKind(kind);
@@ -100,7 +95,6 @@ internal sealed class RpcStreamManager
             throw new ShaRpcProtocolException($"Duplicate outbound stream id '{streamId}'.");
         }
     }
-
     internal void ReleaseOutboundReservation(int streamId)
     {
         if (_reservedOutbound.TryRemove(streamId, out _))
@@ -109,7 +103,6 @@ internal sealed class RpcStreamManager
             _canceledOutbound.TryRemove(streamId, out _);
         }
     }
-
     internal void ReleaseOutboundReservations(RpcStreamAttachment[]? attachments)
     {
         if (attachments is null)
@@ -155,7 +148,6 @@ internal sealed class RpcStreamManager
             throw;
         }
     }
-
     private RpcStreamReceiver RegisterInbound(RpcStreamHandle handle, CancellationToken ct)
     {
         if (handle.StreamId == 0)
@@ -164,16 +156,23 @@ internal sealed class RpcStreamManager
         }
 
         var receiver = new RpcStreamReceiver(this, handle);
-        if (!_receivers.TryAdd(handle.StreamId, receiver))
+        lock (_inboundGate)
         {
-            throw new ShaRpcProtocolException($"Inbound stream id '{handle.StreamId}' is already active.");
+            if (_canceledInbound.Contains(handle.StreamId))
+            {
+                throw new ShaRpcProtocolException(
+                    $"Inbound stream id '{handle.StreamId}' is awaiting a terminal frame after local cancellation.");
+            }
+
+            if (!_receivers.TryAdd(handle.StreamId, receiver))
+            {
+                throw new ShaRpcProtocolException($"Inbound stream id '{handle.StreamId}' is already active.");
+            }
         }
 
-        _canceledInbound.Remove(handle.StreamId);
         receiver.SendCreditBestEffort(WindowSize, ct);
         return receiver;
     }
-
     public RpcOutboundStreamSet RegisterOutbound(
         RpcStreamAttachment[]? attachments,
         CancellationToken ct)
@@ -227,7 +226,6 @@ internal sealed class RpcStreamManager
             throw;
         }
     }
-
     public bool TryAcceptItem(int streamId, Payload frame)
     {
         if (!_receivers.TryGetValue(streamId, out var receiver))
@@ -246,18 +244,19 @@ internal sealed class RpcStreamManager
 
     public void CompleteInbound(int streamId) =>
         CompleteInbound(streamId, error: null);
-
     public void CompleteInbound(int streamId, Exception? error)
     {
-        if (_receivers.TryGetValue(streamId, out var receiver))
+        if (_receivers.TryGetValue(streamId, out var receiver) &&
+            receiver.Complete(error))
         {
-            receiver.Complete(error);
             return;
         }
 
-        _canceledInbound.Remove(streamId);
+        lock (_inboundGate)
+        {
+            _canceledInbound.Remove(streamId);
+        }
     }
-
     public bool TryCompleteInboundError(Payload frame)
     {
         if (!RpcStreamErrorFrameReader.TryRead(frame, _serializer, out var streamId, out var response))
@@ -265,9 +264,12 @@ internal sealed class RpcStreamManager
             return false;
         }
 
-        if (_canceledInbound.TryRemove(streamId))
+        lock (_inboundGate)
         {
-            return true;
+            if (_canceledInbound.TryRemove(streamId))
+            {
+                return true;
+            }
         }
 
         CompleteInbound(
@@ -277,7 +279,6 @@ internal sealed class RpcStreamManager
                 response.ErrorType ?? "Unknown"));
         return true;
     }
-
     public bool TryAddCredit(Payload frame)
     {
         if (!MessageFramer.TryReadFrameHeader(frame.Memory, out var streamId, out _) ||
@@ -321,7 +322,6 @@ internal sealed class RpcStreamManager
 
         return true;
     }
-
     public void CancelOutbound(int streamId)
     {
         if (_senders.TryGetValue(streamId, out var state))
@@ -355,14 +355,20 @@ internal sealed class RpcStreamManager
 
     public void RemoveInbound(int streamId) =>
         AbortInbound(streamId);
-
-    internal void RemoveCompletedInbound(int streamId) =>
-        _receivers.TryRemove(streamId, out _);
-
+    internal void RemoveCompletedInbound(int streamId)
+    {
+        lock (_inboundGate)
+        {
+            _receivers.TryRemove(streamId, out _);
+        }
+    }
     internal void RemoveCanceledInbound(int streamId)
     {
-        _canceledInbound.Add(streamId);
-        _receivers.TryRemove(streamId, out _);
+        lock (_inboundGate)
+        {
+            _canceledInbound.Add(streamId);
+            _receivers.TryRemove(streamId, out _);
+        }
     }
 
     public void RemoveOutbound(int streamId)
