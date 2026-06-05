@@ -9,12 +9,11 @@ namespace ShaRPC.Tests;
 public sealed class StreamingWave10RegressionTests
 {
     [Fact]
-    public async Task ManyLocallyCanceledInboundStreams_WithoutRemoteTerminal_DoNotAccumulateTombstones()
+    public async Task ManyLocallyCanceledInboundStreams_WithoutRemoteTerminal_AreBoundedByCapacity()
     {
         var streams = CreateStreamManager();
-        var streamCount = RpcCanceledInboundStreams.Capacity + 64;
 
-        for (var i = 0; i < streamCount; i++)
+        for (var i = 0; i < RpcCanceledInboundStreams.Capacity; i++)
         {
             var receiver = streams.RegisterInboundResponse(
                 new RpcStreamHandle(10_000 + i, RpcStreamKind.Binary),

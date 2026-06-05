@@ -164,16 +164,32 @@ public sealed class StreamingWave4RegressionTests
     }
 
     [Fact]
-    public async Task RequestCleanup_RemovesContextAcquiredReceiverNotDeclaredByRequest()
+    public async Task UndeclaredPayloadStreamHandle_ReturnsProtocolErrorWithoutReceiver()
     {
         var serializer = new MessagePackRpcSerializer();
         var streams = new RpcStreamManager(serializer, SendNoopAsync, exceptionTransformer: null);
         var dispatcher = new UndeclaredStreamHandleDispatcher();
+        var sentError = new TaskCompletionSource<RpcResponse>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         var inbound = new RpcPeerInboundDispatcher(
             serializer,
             new RpcPeerOptions { InboundQueueCapacity = null },
             streams,
-            SendNoopAsync,
+            (frame, ct) =>
+            {
+                Assert.True(MessageFramer.TryReadFrame(
+                    frame,
+                    out _,
+                    out var messageType,
+                    out var envelope,
+                    out _));
+                if (messageType == MessageType.Error)
+                {
+                    sentError.TrySetResult(serializer.Deserialize<RpcResponse>(envelope));
+                }
+
+                return Task.CompletedTask;
+            },
             protocolError: static (_, _, _, _) => { },
             dispatchError: static (_, _) => { });
         inbound.AddDispatcher(dispatcher);
@@ -199,8 +215,13 @@ public sealed class StreamingWave4RegressionTests
 
         Assert.True(accepted);
         await dispatcher.Invoked.Task.WaitAsync(TestTimeout);
-        await dispatcher.Acquired.Task.WaitAsync(TestTimeout);
+        var response = await sentError.Task.WaitAsync(TestTimeout);
         await WaitUntilAsync(() => inbound.ActiveInboundCount == 0);
+
+        Assert.False(response.IsSuccess);
+        Assert.Equal(RpcErrorTypes.ProtocolError, response.ErrorType);
+        Assert.Contains("was not declared by the request", response.ErrorMessage);
+        Assert.False(dispatcher.Acquired.Task.IsCompleted);
         Assert.Equal(0, streams.InboundReceiverCount);
         Assert.Equal(0, inbound.ActiveInboundCount);
     }

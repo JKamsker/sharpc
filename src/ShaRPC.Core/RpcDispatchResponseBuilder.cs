@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using ShaRPC.Core.Buffers;
+using ShaRPC.Core.Exceptions;
 using ShaRPC.Core.Protocol;
 using ShaRPC.Core.Serialization;
 using ShaRPC.Core.Server;
@@ -65,6 +66,13 @@ internal sealed class RpcDispatchResponseBuilder
         {
             await streaming.AbandonResponseAsync().ConfigureAwait(false);
             throw;
+        }
+        catch (ShaRpcProtocolException ex)
+        {
+            await streaming.AbandonResponseAsync().ConfigureAwait(false);
+            return new RpcDispatchResult(
+                BuildErrorFrame(messageId, RpcErrors.Protocol(ex.Message)),
+                stream: null);
         }
         catch (Exception ex)
         {

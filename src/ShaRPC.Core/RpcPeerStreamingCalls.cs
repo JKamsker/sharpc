@@ -107,6 +107,10 @@ internal sealed class RpcPeerStreamingCalls
         {
             throw new ShaRpcProtocolException($"Response stream kind was '{handle.Kind}', expected '{expectedKind}'.");
         }
+        if (!received.Payload.IsEmpty)
+        {
+            throw new ShaRpcProtocolException("Streaming response payload must be empty.");
+        }
 
         var stream = received.DetachStream() ??
             throw new ShaRpcProtocolException("Response stream receiver was already claimed.");

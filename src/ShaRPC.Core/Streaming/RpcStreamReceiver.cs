@@ -174,15 +174,18 @@ internal sealed class RpcStreamReceiver
                 return false;
             }
 
-            _manager.AfterInboundCancelActiveObservedForTest?.Invoke(Handle.StreamId, this);
-            if (Volatile.Read(ref _completed) != 0)
+            Interlocked.Exchange(ref _completed, 1);
+            try
             {
-                return false;
+                _manager.RemoveCanceledInbound(Handle.StreamId);
+                _chunks.Writer.TryComplete(new OperationCanceledException());
+            }
+            catch (Exception ex)
+            {
+                RpcDiagnostics.Report("Canceled inbound stream tracking failed", ex);
+                _chunks.Writer.TryComplete(ex);
             }
 
-            Interlocked.Exchange(ref _completed, 1);
-            _manager.RemoveCanceledInbound(Handle.StreamId);
-            _chunks.Writer.TryComplete(new OperationCanceledException());
             streams = Interlocked.Exchange(ref _outboundStreams, null);
         }
 

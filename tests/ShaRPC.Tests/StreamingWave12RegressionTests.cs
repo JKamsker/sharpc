@@ -100,33 +100,16 @@ public sealed class StreamingWave12RegressionTests
     }
 
     [Fact]
-    public async Task TerminalRacingCancelActiveObservation_DoesNotLeaveStaleTombstone()
+    public async Task TerminalBeforeCancel_DoesNotLeaveStaleTombstone()
     {
         var serializer = new MessagePackRpcSerializer();
         var streams = CreateStreamManager(serializer);
         var handle = new RpcStreamHandle(16_100, RpcStreamKind.Binary);
         var receiver = streams.RegisterInboundResponse(handle, CancellationToken.None);
-        var hookCalls = 0;
-        streams.AfterInboundCancelActiveObservedForTest = (streamId, observed) =>
-        {
-            Assert.Equal(handle.StreamId, streamId);
-            Assert.Same(receiver, observed);
-            if (Interlocked.Increment(ref hookCalls) == 1)
-            {
-                streams.CompleteInbound(streamId);
-            }
-        };
 
-        try
-        {
-            await receiver.CancelAsync();
-        }
-        finally
-        {
-            streams.AfterInboundCancelActiveObservedForTest = null;
-        }
+        streams.CompleteInbound(handle.StreamId);
+        await receiver.CancelAsync();
 
-        Assert.Equal(1, hookCalls);
         Assert.Equal(0, streams.InboundReceiverCount);
         Assert.Equal(0, streams.CanceledInboundCount);
 

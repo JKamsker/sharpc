@@ -1,4 +1,5 @@
 using System.IO.Pipelines;
+using ShaRPC.Core.Exceptions;
 using ShaRPC.Core.Protocol;
 using ShaRPC.Core.Serialization;
 
@@ -12,6 +13,8 @@ public sealed class RpcStreamingContext : IRpcStreamingContext
     private readonly RpcStreamManager? _streams;
     private readonly ISerializer? _serializer;
     private readonly CancellationToken _ct;
+    private readonly Dictionary<int, RpcStreamKind>? _declaredInboundStreams;
+    private HashSet<int>? _claimedInboundStreamIds;
     private HashSet<int>? _inboundStreamIds;
     private RpcStreamAttachment? _response;
 
@@ -24,11 +27,13 @@ public sealed class RpcStreamingContext : IRpcStreamingContext
     internal RpcStreamingContext(
         RpcStreamManager streams,
         ISerializer serializer,
-        CancellationToken ct)
+        CancellationToken ct,
+        RpcStreamHandle[]? declaredInboundStreams = null)
     {
         _streams = streams;
         _serializer = serializer;
         _ct = ct;
+        _declaredInboundStreams = CreateDeclaredInboundStreams(declaredInboundStreams);
     }
 
     internal RpcStreamAttachment? Response => _response;
@@ -125,9 +130,32 @@ public sealed class RpcStreamingContext : IRpcStreamingContext
     {
         EnsureEnabled();
         EnsureKind(handle, expected);
-        var receiver = _streams!.GetOrRegisterInbound(handle, _ct);
+        ClaimDeclaredInbound(handle);
+        var receiver = _streams!.GetRegisteredInbound(handle);
         (_inboundStreamIds ??= new HashSet<int>()).Add(receiver.Handle.StreamId);
         return receiver;
+    }
+
+    private void ClaimDeclaredInbound(RpcStreamHandle handle)
+    {
+        if (_declaredInboundStreams is null ||
+            !_declaredInboundStreams.TryGetValue(handle.StreamId, out var declaredKind))
+        {
+            throw new ShaRpcProtocolException(
+                $"Inbound stream id '{handle.StreamId}' was not declared by the request.");
+        }
+
+        if (declaredKind != handle.Kind)
+        {
+            throw new ShaRpcProtocolException(
+                $"Inbound stream id '{handle.StreamId}' was declared as '{declaredKind}', not '{handle.Kind}'.");
+        }
+
+        if (!(_claimedInboundStreamIds ??= new HashSet<int>()).Add(handle.StreamId))
+        {
+            throw new ShaRpcProtocolException(
+                $"Inbound stream id '{handle.StreamId}' was already claimed.");
+        }
     }
 
     private void EnsureEnabled()
@@ -142,7 +170,24 @@ public sealed class RpcStreamingContext : IRpcStreamingContext
     {
         if (handle.Kind != expected)
         {
-            throw new InvalidOperationException($"Stream '{handle.StreamId}' is '{handle.Kind}', not '{expected}'.");
+            throw new ShaRpcProtocolException($"Stream '{handle.StreamId}' is '{handle.Kind}', not '{expected}'.");
         }
+    }
+
+    private static Dictionary<int, RpcStreamKind>? CreateDeclaredInboundStreams(
+        RpcStreamHandle[]? handles)
+    {
+        if (handles is null || handles.Length == 0)
+        {
+            return null;
+        }
+
+        var declared = new Dictionary<int, RpcStreamKind>(handles.Length);
+        foreach (var handle in handles)
+        {
+            declared.Add(handle.StreamId, handle.Kind);
+        }
+
+        return declared;
     }
 }

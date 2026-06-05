@@ -1,4 +1,5 @@
 using ShaRPC.Core.Buffers;
+using ShaRPC.Core.Exceptions;
 
 namespace ShaRPC.Core.Streaming;
 
@@ -9,6 +10,7 @@ internal sealed class RpcCanceledInboundStreams
     private readonly object _gate = new();
     private readonly LinkedList<int> _order = new();
     private readonly Dictionary<int, LinkedListNode<int>> _streamIds = new();
+    private bool _overflowed;
 
     public int Count
     {
@@ -36,14 +38,28 @@ internal sealed class RpcCanceledInboundStreams
     {
         lock (_gate)
         {
+            ThrowIfOverflowedLocked();
             if (_streamIds.ContainsKey(streamId))
             {
                 return;
             }
 
+            if (_streamIds.Count >= Capacity)
+            {
+                _overflowed = true;
+                ThrowOverflow();
+            }
+
             var node = _order.AddLast(streamId);
             _streamIds.Add(streamId, node);
-            Trim();
+        }
+    }
+
+    public void ThrowIfOverflowed()
+    {
+        lock (_gate)
+        {
+            ThrowIfOverflowedLocked();
         }
     }
 
@@ -88,6 +104,7 @@ internal sealed class RpcCanceledInboundStreams
         {
             _streamIds.Clear();
             _order.Clear();
+            _overflowed = false;
         }
     }
 
@@ -102,18 +119,15 @@ internal sealed class RpcCanceledInboundStreams
         return true;
     }
 
-    private void Trim()
+    private void ThrowIfOverflowedLocked()
     {
-        while (_streamIds.Count > Capacity)
+        if (_overflowed)
         {
-            var first = _order.First;
-            if (first is null)
-            {
-                return;
-            }
-
-            _order.RemoveFirst();
-            _streamIds.Remove(first.Value);
+            ThrowOverflow();
         }
     }
+
+    private static void ThrowOverflow() =>
+        throw new ShaRpcProtocolException(
+            "Canceled inbound stream tombstone capacity was exceeded.");
 }

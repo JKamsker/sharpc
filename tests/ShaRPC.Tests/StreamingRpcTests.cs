@@ -124,7 +124,8 @@ public sealed class StreamingRpcTests
         serverStreams = new RpcStreamManager(serializer, SendToClientAsync, exceptionTransformer: null);
         var handle = new RpcStreamHandle(100, RpcStreamKind.Binary);
         clientStreams.ReserveOutbound(handle.StreamId);
-        var receiver = serverStreams.GetOrRegisterInbound(handle, CancellationToken.None);
+        serverStreams.RegisterInbound(new[] { handle }, CancellationToken.None);
+        var receiver = serverStreams.GetRegisteredInbound(handle);
 
         await using var outbound = clientStreams.RegisterOutbound(
             new[] { RpcStreamAttachment.FromStream(handle, new MemoryStream(new byte[] { 7, 8, 9 })) },

@@ -52,7 +52,7 @@ internal sealed partial class RpcPeerOutboundInvoker : IRpcInvoker
         CancellationToken ct = default)
     {
         using var received = await SendRequestAsync(service, method, request, instanceId: null, streams: null, ct).ConfigureAwait(false);
-        return _serializer.Deserialize<TResponse>(received.Payload);
+        return DeserializeNonStreamingResponse<TResponse>(received);
     }
 
     public async Task<TResponse> InvokeAsync<TRequest, TResponse>(
@@ -63,7 +63,7 @@ internal sealed partial class RpcPeerOutboundInvoker : IRpcInvoker
         CancellationToken ct = default)
     {
         using var received = await SendRequestAsync(service, method, request, instanceId: null, streams, ct).ConfigureAwait(false);
-        return _serializer.Deserialize<TResponse>(received.Payload);
+        return DeserializeNonStreamingResponse<TResponse>(received);
     }
 
     public async Task<TResponse> InvokeAsync<TResponse>(
@@ -72,7 +72,7 @@ internal sealed partial class RpcPeerOutboundInvoker : IRpcInvoker
         CancellationToken ct = default)
     {
         using var received = await SendRequestAsync(service, method, instanceId: null, ct).ConfigureAwait(false);
-        return _serializer.Deserialize<TResponse>(received.Payload);
+        return DeserializeNonStreamingResponse<TResponse>(received);
     }
 
     public async Task InvokeAsync<TRequest>(
@@ -81,7 +81,8 @@ internal sealed partial class RpcPeerOutboundInvoker : IRpcInvoker
         TRequest request,
         CancellationToken ct = default)
     {
-        using var _ = await SendRequestAsync(service, method, request, instanceId: null, streams: null, ct).ConfigureAwait(false);
+        using var received = await SendRequestAsync(service, method, request, instanceId: null, streams: null, ct).ConfigureAwait(false);
+        EnsureNonStreamingResponse(received);
     }
 
     public async Task InvokeAsync<TRequest>(
@@ -91,12 +92,14 @@ internal sealed partial class RpcPeerOutboundInvoker : IRpcInvoker
         RpcStreamAttachment[] streams,
         CancellationToken ct = default)
     {
-        using var _ = await SendRequestAsync(service, method, request, instanceId: null, streams, ct).ConfigureAwait(false);
+        using var received = await SendRequestAsync(service, method, request, instanceId: null, streams, ct).ConfigureAwait(false);
+        EnsureNonStreamingResponse(received);
     }
 
     public async Task InvokeAsync(string service, string method, CancellationToken ct = default)
     {
-        using var _ = await SendRequestAsync(service, method, instanceId: null, ct).ConfigureAwait(false);
+        using var received = await SendRequestAsync(service, method, instanceId: null, ct).ConfigureAwait(false);
+        EnsureNonStreamingResponse(received);
     }
 
     public Task<Stream> InvokeStreamAsync(
@@ -222,6 +225,21 @@ internal sealed partial class RpcPeerOutboundInvoker : IRpcInvoker
     public void FailPending(Exception error) => _pending.FailAll(error);
 
     public Task StopCancelFramesAsync() => _cancelFrames.StopAsync();
+
+    private TResponse DeserializeNonStreamingResponse<TResponse>(ReceivedResponse received)
+    {
+        EnsureNonStreamingResponse(received);
+        return _serializer.Deserialize<TResponse>(received.Payload);
+    }
+
+    private static void EnsureNonStreamingResponse(ReceivedResponse received)
+    {
+        if (received.Response.Stream is not null)
+        {
+            throw new ShaRpcProtocolException(
+                "Response opened a stream for a non-streaming invocation.");
+        }
+    }
 
     private async Task<ReceivedResponse> SendRequestAsync<TRequest>(
         string service,
