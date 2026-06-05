@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using ShaRPC.Core;
 using ShaRPC.Core.Buffers;
 using ShaRPC.Core.Protocol;
 
@@ -26,8 +27,25 @@ internal sealed class RpcStreamReceiver
 
     public RpcStreamHandle Handle { get; }
 
-    public void AttachOutboundStreams(RpcOutboundStreamSet streams) =>
-        _outboundStreams = streams;
+    public void AttachOutboundStreams(RpcOutboundStreamSet streams)
+    {
+        if (Volatile.Read(ref _completed) != 0)
+        {
+            _ = streams.DisposeAsync();
+            return;
+        }
+
+        if (Interlocked.Exchange(ref _outboundStreams, streams) is { } previous)
+        {
+            _ = previous.DisposeAsync();
+        }
+
+        if (Volatile.Read(ref _completed) != 0 &&
+            Interlocked.CompareExchange(ref _outboundStreams, null, streams) == streams)
+        {
+            _ = streams.DisposeAsync();
+        }
+    }
 
     public bool TryAccept(Payload frame)
     {
@@ -90,20 +108,50 @@ internal sealed class RpcStreamReceiver
 
     public void Cancel()
     {
-        _ = CancelAsync();
+        if (Volatile.Read(ref _completed) == 0)
+        {
+            _ = SendCancelBestEffortAsync();
+        }
+
+        Abort(new OperationCanceledException());
+        _manager.RemoveInbound(Handle.StreamId);
     }
 
     public async ValueTask CancelAsync()
     {
-        if (Volatile.Read(ref _completed) != 0)
+        try
         {
-            _manager.RemoveInbound(Handle.StreamId);
-            return;
+            if (Volatile.Read(ref _completed) == 0)
+            {
+                await SendCancelBestEffortAsync().ConfigureAwait(false);
+            }
         }
+        finally
+        {
+            Abort(new OperationCanceledException());
+            _manager.RemoveInbound(Handle.StreamId);
+        }
+    }
 
-        await _manager.SendCancelAsync(Handle.StreamId, CancellationToken.None).ConfigureAwait(false);
-        Complete(new OperationCanceledException());
-        _manager.RemoveInbound(Handle.StreamId);
+    internal void Abort(Exception? error = null)
+    {
+        Complete(error);
+        while (_chunks.Reader.TryRead(out var chunk))
+        {
+            chunk.Dispose();
+        }
+    }
+
+    private async Task SendCancelBestEffortAsync()
+    {
+        try
+        {
+            await _manager.SendCancelAsync(Handle.StreamId, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            RpcDiagnostics.Report("Stream cancel notification failed", ex);
+        }
     }
 
     public void ReleaseCredit()

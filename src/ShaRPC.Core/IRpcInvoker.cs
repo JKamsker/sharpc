@@ -15,6 +15,11 @@ public interface IRpcInvoker
     RpcStreamHandle ReserveStream(RpcStreamKind kind) =>
         throw new NotSupportedException("This IRpcInvoker does not support streaming RPC arguments.");
 
+    /// <summary>Releases a stream id reservation that was never attached to an RPC request.</summary>
+    void ReleaseStream(RpcStreamHandle handle)
+    {
+    }
+
     /// <summary>Invokes a method with a request body and a response body.</summary>
     /// <param name="service">The remote service name.</param>
     /// <param name="method">The method to invoke.</param>

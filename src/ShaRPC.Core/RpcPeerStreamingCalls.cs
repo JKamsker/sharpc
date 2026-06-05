@@ -108,11 +108,13 @@ internal sealed class RpcPeerStreamingCalls
             throw new ShaRpcProtocolException($"Response stream kind was '{handle.Kind}', expected '{expectedKind}'.");
         }
 
+        var stream = received.DetachStream() ??
+            throw new ShaRpcProtocolException("Response stream receiver was already claimed.");
         if (received.DetachOutboundStreams() is { } outboundStreams)
         {
-            received.Stream.AttachOutboundStreams(outboundStreams);
+            stream.AttachOutboundStreams(outboundStreams);
         }
 
-        return received.Stream;
+        return stream;
     }
 }

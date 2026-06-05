@@ -139,11 +139,63 @@ internal static class ProxyGenerator
         else
         {
             var locals = new GeneratedLocalNames(method.Parameters, ct);
-            var invocation = BuildClientInvocation(sb, service, method, ctArg, locals, ct);
-            ProxyInvocationEmitter.Emit(sb, method, invocation, locals, ct);
+            if (method.ReturnKind == MethodReturnKind.AsyncEnumerable &&
+                HasStreamedRequestParameter(method, ct))
+            {
+                EmitLazyAsyncEnumerableInvocation(sb, service, method, ctArg, locals, ct);
+            }
+            else
+            {
+                var invocation = BuildClientInvocation(sb, service, method, ctArg, locals, ct);
+                ProxyInvocationEmitter.Emit(sb, method, invocation, locals, ct);
+            }
         }
 
         sb.AppendLine("        }");
+    }
+
+    private static bool HasStreamedRequestParameter(MethodModel method, CancellationToken ct)
+    {
+        foreach (var parameter in method.Parameters.Array)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (parameter.StreamKind != ParameterStreamKind.None)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static void EmitLazyAsyncEnumerableInvocation(
+        StringBuilder sb,
+        ServiceModel service,
+        MethodModel method,
+        string ctArg,
+        GeneratedLocalNames locals,
+        CancellationToken ct)
+    {
+        var iteratorName = locals.Reserve("__sharpc_enumerate", ct);
+        var enumerationCt = locals.Reserve("__sharpc_enumerationCt", ct);
+        var itemName = locals.Reserve("__sharpc_item", ct);
+        sb.AppendLine($"            return {iteratorName}();");
+        sb.AppendLine();
+        sb.AppendLine($"            async {method.DeclaredReturnType} {iteratorName}([global::System.Runtime.CompilerServices.EnumeratorCancellation] global::System.Threading.CancellationToken {enumerationCt} = default)");
+        sb.AppendLine("            {");
+        var invocation = BuildClientInvocation(
+            sb,
+            service,
+            method,
+            ctArg,
+            locals,
+            ct,
+            "                ");
+        sb.AppendLine($"                await foreach (var {itemName} in global::System.Threading.Tasks.TaskAsyncEnumerableExtensions.WithCancellation({invocation}, {enumerationCt}).ConfigureAwait(false))");
+        sb.AppendLine("                {");
+        sb.AppendLine($"                    yield return {itemName};");
+        sb.AppendLine("                }");
+        sb.AppendLine("            }");
     }
 
     /// <summary>
@@ -159,7 +211,8 @@ internal static class ProxyGenerator
         MethodModel method,
         string ctArg,
         GeneratedLocalNames locals,
-        CancellationToken ct)
+        CancellationToken ct,
+        string indent = "            ")
     {
         var isSubServiceReturn = NamingHelpers.IsSubServiceReturn(method.ReturnKind);
         var hasReturn = NamingHelpers.HasReturnValue(method.ReturnKind);
@@ -169,7 +222,7 @@ internal static class ProxyGenerator
                 ? null
                 : ProxyGenerationHelpers.GetWireType(method.UnwrappedReturnType);
         var requestParameters = ProxyGenerationHelpers.GetRequestParameters(method.Parameters, ct);
-        var streamSetup = EmitStreamSetup(sb, method, requestParameters, locals, ct);
+        var streamSetup = EmitStreamSetup(sb, method, requestParameters, locals, ct, indent);
         var streamArray = streamSetup.ArrayName;
         var svc = service.ServiceName;
         var rpc = method.RpcName;
@@ -270,7 +323,8 @@ internal static class ProxyGenerator
         MethodModel method,
         System.Collections.Generic.List<ParameterModel> requestParameters,
         GeneratedLocalNames locals,
-        CancellationToken ct)
+        CancellationToken ct,
+        string indent)
     {
         var handles = new System.Collections.Generic.Dictionary<int, string>();
         var streamCount = 0;
@@ -302,18 +356,31 @@ internal static class ProxyGenerator
             var handleName = locals.Reserve("__sharpc_stream" + (i + 1), ct);
             handles[i] = handleName;
             var kind = parameter.StreamKind == ParameterStreamKind.AsyncEnumerable ? "Items" : "Binary";
-            sb.AppendLine($"            var {handleName} = this._invoker.ReserveStream(global::ShaRPC.Core.Protocol.RpcStreamKind.{kind});");
+            sb.AppendLine($"{indent}var {handleName} = this._invoker.ReserveStream(global::ShaRPC.Core.Protocol.RpcStreamKind.{kind});");
             attachmentExpressions.Add(BuildAttachmentExpression(parameter, handleName));
         }
 
-        sb.AppendLine($"            var {arrayName} = new global::ShaRPC.Core.Streaming.RpcStreamAttachment[]");
-        sb.AppendLine("            {");
+        sb.AppendLine($"{indent}global::ShaRPC.Core.Streaming.RpcStreamAttachment[] {arrayName};");
+        sb.AppendLine($"{indent}try");
+        sb.AppendLine($"{indent}{{");
+        sb.AppendLine($"{indent}    {arrayName} = new global::ShaRPC.Core.Streaming.RpcStreamAttachment[]");
+        sb.AppendLine($"{indent}    {{");
         foreach (var expression in attachmentExpressions)
         {
             ct.ThrowIfCancellationRequested();
-            sb.AppendLine($"                {expression},");
+            sb.AppendLine($"{indent}        {expression},");
         }
-        sb.AppendLine("            };");
+        sb.AppendLine($"{indent}    }};");
+        sb.AppendLine($"{indent}}}");
+        sb.AppendLine($"{indent}catch");
+        sb.AppendLine($"{indent}{{");
+        foreach (var handleName in handles.Values)
+        {
+            ct.ThrowIfCancellationRequested();
+            sb.AppendLine($"{indent}    this._invoker.ReleaseStream({handleName});");
+        }
+        sb.AppendLine($"{indent}    throw;");
+        sb.AppendLine($"{indent}}}");
         return (arrayName, handles);
     }
 

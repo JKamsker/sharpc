@@ -60,6 +60,8 @@ public abstract class RpcStreamAttachment
         ISerializer serializer,
         CancellationToken ct);
 
+    internal virtual ValueTask DisposeSourceAsync() => default;
+
     private static void RequireKind(RpcStreamHandle handle, RpcStreamKind expected)
     {
         if (handle.Kind != expected)
@@ -110,6 +112,9 @@ public abstract class RpcStreamAttachment
                 }
             }
         }
+
+        internal override ValueTask DisposeSourceAsync() =>
+            _leaveOpen ? default : DisposeStreamAsync(_stream);
     }
 
     private sealed class PipeAttachment : RpcStreamAttachment
@@ -158,6 +163,9 @@ public abstract class RpcStreamAttachment
                 }
             }
         }
+
+        internal override ValueTask DisposeSourceAsync() =>
+            _completeReader ? _pipe.Reader.CompleteAsync() : default;
     }
 
     private sealed class AsyncEnumerableAttachment<T> : RpcStreamAttachment

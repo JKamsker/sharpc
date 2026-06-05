@@ -42,15 +42,22 @@ internal sealed class RpcStreamManager
             throw new ShaRpcProtocolException("Stream id must not be zero.");
         }
 
-        return _receivers.GetOrAdd(
-            handle.StreamId,
-            id =>
+        if (_receivers.TryGetValue(handle.StreamId, out var existing))
+        {
+            if (existing.Handle.Kind != handle.Kind)
             {
-                var receiver = new RpcStreamReceiver(this, handle);
-                _ = SendCreditAsync(id, WindowSize, ct);
-                return receiver;
-            });
+                throw new ShaRpcProtocolException(
+                    $"Inbound stream id '{handle.StreamId}' is '{existing.Handle.Kind}', not '{handle.Kind}'.");
+            }
+
+            return existing;
+        }
+
+        return RegisterInbound(handle, ct);
     }
+
+    public RpcStreamReceiver RegisterInboundResponse(RpcStreamHandle handle, CancellationToken ct) =>
+        RegisterInbound(handle, ct);
 
     internal RpcStreamHandle ReserveOutbound(RpcStreamKind kind)
     {
@@ -83,6 +90,30 @@ internal sealed class RpcStreamManager
         }
     }
 
+    internal void ReleaseOutboundReservation(int streamId)
+    {
+        if (_reservedOutbound.TryRemove(streamId, out _))
+        {
+            _pendingCredits.TryRemove(streamId, out _);
+        }
+    }
+
+    internal void ReleaseOutboundReservations(RpcStreamAttachment[]? attachments)
+    {
+        if (attachments is null)
+        {
+            return;
+        }
+
+        foreach (var attachment in attachments)
+        {
+            if (attachment is not null)
+            {
+                ReleaseOutboundReservation(attachment.Handle.StreamId);
+            }
+        }
+    }
+
     public void RegisterInbound(RpcStreamHandle[]? handles, CancellationToken ct)
     {
         if (handles is null)
@@ -90,10 +121,44 @@ internal sealed class RpcStreamManager
             return;
         }
 
-        foreach (var handle in handles)
+        var registered = new List<int>(handles.Length);
+        try
         {
-            GetOrRegisterInbound(handle, ct);
+            foreach (var handle in handles)
+            {
+                RegisterInbound(handle, ct);
+                registered.Add(handle.StreamId);
+            }
         }
+        catch
+        {
+            foreach (var streamId in registered)
+            {
+                if (_receivers.TryRemove(streamId, out var receiver))
+                {
+                    receiver.Abort(new ShaRpcProtocolException("Inbound stream registration failed."));
+                }
+            }
+
+            throw;
+        }
+    }
+
+    private RpcStreamReceiver RegisterInbound(RpcStreamHandle handle, CancellationToken ct)
+    {
+        if (handle.StreamId == 0)
+        {
+            throw new ShaRpcProtocolException("Stream id must not be zero.");
+        }
+
+        var receiver = new RpcStreamReceiver(this, handle);
+        if (!_receivers.TryAdd(handle.StreamId, receiver))
+        {
+            throw new ShaRpcProtocolException($"Inbound stream id '{handle.StreamId}' is already active.");
+        }
+
+        _ = SendCreditAsync(handle.StreamId, WindowSize, ct);
+        return receiver;
     }
 
     public RpcOutboundStreamSet RegisterOutbound(
@@ -146,8 +211,7 @@ internal sealed class RpcStreamManager
                     continue;
                 }
 
-                _reservedOutbound.TryRemove(attachment.Handle.StreamId, out _);
-                _pendingCredits.TryRemove(attachment.Handle.StreamId, out _);
+                ReleaseOutboundReservation(attachment.Handle.StreamId);
             }
 
             throw;

@@ -276,6 +276,8 @@ public sealed class RpcPeer : IAsyncDisposable, IRpcInvoker
         _outbound.InvokeAsyncEnumerableOnInstanceAsync<TRequest, T>(service, instanceId, method, request, streams, ct);
     public RpcStreamHandle ReserveStream(RpcStreamKind kind) =>
         _outbound.ReserveStream(kind);
+    public void ReleaseStream(RpcStreamHandle handle) =>
+        _outbound.ReleaseStream(handle);
 
     /// <summary>Closes the peer by disposing it; closed peers cannot be restarted.</summary>
     /// <remarks>

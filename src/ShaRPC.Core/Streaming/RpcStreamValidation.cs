@@ -15,6 +15,7 @@ internal static class RpcStreamValidation
             return true;
         }
 
+        var streamIds = new HashSet<int>();
         foreach (var handle in handles)
         {
             if (handle.StreamId == 0)
@@ -26,6 +27,12 @@ internal static class RpcStreamValidation
             if (!IsKnownKind(handle.Kind))
             {
                 protocolError = $"Unknown stream kind '{handle.Kind}'.";
+                return false;
+            }
+
+            if (!streamIds.Add(handle.StreamId))
+            {
+                protocolError = $"Duplicate inbound stream id '{handle.StreamId}'.";
                 return false;
             }
         }

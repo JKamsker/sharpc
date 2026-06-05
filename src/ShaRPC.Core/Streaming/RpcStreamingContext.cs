@@ -32,6 +32,17 @@ public sealed class RpcStreamingContext : IRpcStreamingContext
 
     internal RpcStreamAttachment? Response => _response;
 
+    internal async ValueTask AbandonResponseAsync()
+    {
+        if (Interlocked.Exchange(ref _response, null) is not { } response)
+        {
+            return;
+        }
+
+        _streams?.ReleaseOutboundReservation(response.Handle.StreamId);
+        await response.DisposeSourceAsync().ConfigureAwait(false);
+    }
+
     public Stream GetStream(RpcStreamHandle handle)
     {
         EnsureEnabled();

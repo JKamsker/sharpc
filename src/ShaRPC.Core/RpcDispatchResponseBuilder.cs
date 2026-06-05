@@ -67,6 +67,7 @@ internal sealed class RpcDispatchResponseBuilder
         }
         catch (Exception ex)
         {
+            await streaming.AbandonResponseAsync().ConfigureAwait(false);
             return new RpcDispatchResult(
                 BuildErrorFrame(messageId, RpcErrors.FromException(ex, _exceptionTransformer)),
                 stream: null);

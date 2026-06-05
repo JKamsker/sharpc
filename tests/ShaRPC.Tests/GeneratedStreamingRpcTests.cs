@@ -1,7 +1,7 @@
 using System.Runtime.CompilerServices;
-using Shared;
 using ShaRPC.Core;
 using ShaRPC.Serializers.MessagePack;
+using ShaRPC.Tests.GeneratedFixtures;
 using Xunit;
 
 namespace ShaRPC.Tests;
@@ -36,7 +36,8 @@ public sealed class GeneratedStreamingRpcTests
         var taskWrapped = await proxy.NumbersAsync().WaitAsync(Timeout);
         await service.TaskWrappedNumbersInvoked.Task.WaitAsync(Timeout);
         var wrappedValues = new List<int>();
-        await foreach (var item in taskWrapped.WithCancellation(CancellationToken.None))
+        using var taskWrappedEnumerationCts = new CancellationTokenSource(Timeout);
+        await foreach (var item in taskWrapped.WithCancellation(taskWrappedEnumerationCts.Token))
         {
             wrappedValues.Add(item);
         }
@@ -47,6 +48,18 @@ public sealed class GeneratedStreamingRpcTests
         var uploaded = await proxy.UploadAsync(bytes, UploadItems()).WaitAsync(Timeout);
 
         Assert.Equal(5 + 6 + 7 + 10 + 20, uploaded);
+
+        await using var lazyBytes = new MemoryStream(new byte[] { 1, 2 });
+        var lazyUpload = proxy.StreamUploadAsync(lazyBytes, UploadItems());
+        Assert.False(service.StreamUploadInvoked.Task.IsCompleted);
+
+        var firstLazyValues = await ReadAllAsync(lazyUpload);
+        Assert.Equal(new[] { 1 + 2 + 10 + 20 }, firstLazyValues);
+
+        lazyBytes.Position = 0;
+        var secondLazyValues = await ReadAllAsync(lazyUpload);
+        Assert.Equal(new[] { 1 + 2 + 10 + 20 }, secondLazyValues);
+        Assert.Equal(2, service.StreamUploadInvocationCount);
     }
 
     private static async IAsyncEnumerable<int> UploadItems(
@@ -58,6 +71,18 @@ public sealed class GeneratedStreamingRpcTests
         yield return 20;
     }
 
+    private static async Task<List<int>> ReadAllAsync(IAsyncEnumerable<int> source)
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var values = new List<int>();
+        await foreach (var item in source.WithCancellation(cts.Token))
+        {
+            values.Add(item);
+        }
+
+        return values;
+    }
+
     private sealed class GeneratedStreamingService : IGeneratedStreamingService
     {
         private readonly TaskCompletionSource _numbersGate =
@@ -65,6 +90,11 @@ public sealed class GeneratedStreamingRpcTests
 
         public TaskCompletionSource TaskWrappedNumbersInvoked { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource StreamUploadInvoked { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int StreamUploadInvocationCount { get; private set; }
 
         public void ReleaseNumbers() => _numbersGate.TrySetResult();
 
@@ -102,6 +132,16 @@ public sealed class GeneratedStreamingRpcTests
             }
 
             return sum;
+        }
+
+        public async IAsyncEnumerable<int> StreamUploadAsync(
+            Stream bytes,
+            IAsyncEnumerable<int> items,
+            [EnumeratorCancellation] CancellationToken ct = default)
+        {
+            StreamUploadInvocationCount++;
+            StreamUploadInvoked.TrySetResult();
+            yield return await UploadAsync(bytes, items, ct).ConfigureAwait(false);
         }
 
         private static async IAsyncEnumerable<int> WrappedNumbers(

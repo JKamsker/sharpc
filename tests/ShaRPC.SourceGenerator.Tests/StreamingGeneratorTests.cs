@@ -110,6 +110,49 @@ public sealed class StreamingGeneratorTests
     }
 
     [Fact]
+    public void DirectAsyncEnumerableWithStreamedArguments_ReservesStreamsInsideEnumeration()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Collections.Generic;
+            using System.IO;
+            using System.Threading;
+
+            namespace Streaming.Lazy
+            {
+                [ShaRpcService]
+                public interface ILazyStreaming
+                {
+                    IAsyncEnumerable<int> Echo(Stream bytes, IAsyncEnumerable<int> items, CancellationToken ct = default);
+                }
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var driver = GeneratorTestHelper.CreateDriver().RunGenerators(compilation);
+        var runResult = driver.GetRunResult();
+
+        runResult.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)
+            .Should().BeEmpty();
+        EmitShouldSucceed(((CSharpCompilation)compilation).AddSyntaxTrees(runResult.GeneratedTrees));
+
+        var proxy = GeneratedSource(
+            runResult,
+            GeneratorTestHelper.HintName(
+                "Streaming.Lazy",
+                "ILazyStreaming",
+                GeneratorTestHelper.GeneratedKind.Proxy));
+        var returnIndex = proxy.IndexOf("return __sharpc_enumerate();", StringComparison.Ordinal);
+        var reserveIndex = proxy.IndexOf("ReserveStream(global::ShaRPC.Core.Protocol.RpcStreamKind.Binary)", StringComparison.Ordinal);
+        returnIndex.Should().BeGreaterOrEqualTo(0);
+        reserveIndex.Should().BeGreaterThan(returnIndex);
+        proxy.Should().Contain("async global::System.Collections.Generic.IAsyncEnumerable<int> __sharpc_enumerate");
+        proxy.Should().Contain("[global::System.Runtime.CompilerServices.EnumeratorCancellation]");
+        proxy.Should().Contain("this._invoker.ReleaseStream(__sharpc_stream1)");
+        proxy.Should().Contain("this._invoker.ReleaseStream(__sharpc_stream2)");
+    }
+
+    [Fact]
     public void NullableStreamingShapes_ProduceUnsupportedDiagnostics()
     {
         const string source = """

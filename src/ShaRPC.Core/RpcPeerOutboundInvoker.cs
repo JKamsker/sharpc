@@ -42,6 +42,9 @@ internal sealed partial class RpcPeerOutboundInvoker : IRpcInvoker
     public RpcStreamHandle ReserveStream(RpcStreamKind kind) =>
         _streams.ReserveOutbound(kind);
 
+    public void ReleaseStream(RpcStreamHandle handle) =>
+        _streams.ReleaseOutboundReservation(handle.StreamId);
+
     public async Task<TResponse> InvokeAsync<TRequest, TResponse>(
         string service,
         string method,
@@ -198,7 +201,7 @@ internal sealed partial class RpcPeerOutboundInvoker : IRpcInvoker
         {
             if (response.Stream is { } handle)
             {
-                stream = _streams.GetOrRegisterInbound(handle, CancellationToken.None);
+                stream = _streams.RegisterInboundResponse(handle, CancellationToken.None);
             }
 
             var received = new ReceivedResponse(response, payload, frame, stream);
@@ -228,8 +231,17 @@ internal sealed partial class RpcPeerOutboundInvoker : IRpcInvoker
         RpcStreamAttachment[]? streams,
         CancellationToken ct)
     {
-        ValidateTarget(service, method);
-        _ensureStarted();
+        try
+        {
+            ValidateTarget(service, method);
+            _ensureStarted();
+        }
+        catch
+        {
+            _streams.ReleaseOutboundReservations(streams);
+            throw;
+        }
+
         var pending = ReservePendingRequest(ct);
         var outboundStreams = RpcOutboundStreamSet.Empty;
         try

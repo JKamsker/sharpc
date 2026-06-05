@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using ShaRPC.Core;
 using ShaRPC.Core.Buffers;
+using ShaRPC.Core.Client;
 using ShaRPC.Core.Exceptions;
 using ShaRPC.Core.Protocol;
 using ShaRPC.Core.Serialization;
@@ -102,6 +103,52 @@ public sealed class StreamingProtocolRegressionTests
     }
 
     [Fact]
+    public void UnclaimedStreamingResponse_DisposeCancelsAndRemovesReceiver()
+    {
+        var serializer = new MessagePackRpcSerializer();
+        var streams = new RpcStreamManager(serializer, SendNoopAsync, exceptionTransformer: null);
+        var handle = new RpcStreamHandle(600, RpcStreamKind.Binary);
+        var receiver = streams.RegisterInboundResponse(handle, CancellationToken.None);
+        var frame = MessageFramer.FrameMessage(
+            serializer,
+            1,
+            MessageType.Response,
+            new RpcResponse
+            {
+                MessageId = 1,
+                IsSuccess = true,
+                Stream = handle,
+            },
+            ReadOnlySpan<byte>.Empty);
+        var response = new ReceivedResponse(
+            new RpcResponse { MessageId = 1, IsSuccess = true, Stream = handle },
+            ReadOnlyMemory<byte>.Empty,
+            frame,
+            receiver);
+
+        response.Dispose();
+
+        Assert.Equal(0, streams.InboundReceiverCount);
+    }
+
+    [Fact]
+    public async Task ReceiverCancel_CleansUpLocalState_WhenCancelFrameSendFails()
+    {
+        var serializer = new MessagePackRpcSerializer();
+        var streams = new RpcStreamManager(
+            serializer,
+            static (_, _) => throw new InvalidOperationException("send failed"),
+            exceptionTransformer: null);
+        var receiver = streams.RegisterInboundResponse(
+            new RpcStreamHandle(601, RpcStreamKind.Binary),
+            CancellationToken.None);
+
+        await receiver.CancelAsync();
+
+        Assert.Equal(0, streams.InboundReceiverCount);
+    }
+
+    [Fact]
     public async Task UnknownCredits_AreIgnoredInsteadOfBufferedForever()
     {
         var serializer = new MessagePackRpcSerializer();
@@ -149,6 +196,94 @@ public sealed class StreamingProtocolRegressionTests
         Assert.Equal(1, streams.OutboundSenderCount);
 
         streams.RemoveOutbound(existing.StreamId);
+    }
+
+    [Fact]
+    public async Task DuplicateInboundStreamHandles_ReturnProtocolErrorWithoutLeakingRequest()
+    {
+        var serializer = new MessagePackRpcSerializer();
+        var streams = new RpcStreamManager(serializer, SendNoopAsync, exceptionTransformer: null);
+        MessageType? sentType = null;
+        var protocolErrors = new List<string>();
+        var inbound = new RpcPeerInboundDispatcher(
+            serializer,
+            new RpcPeerOptions(),
+            streams,
+            (frame, ct) =>
+            {
+                Assert.True(MessageFramer.TryReadFrameHeader(frame, out _, out var type));
+                sentType = type;
+                return Task.CompletedTask;
+            },
+            (id, type, message, _) => protocolErrors.Add($"{id}:{type}:{message}"),
+            dispatchError: static (_, _) => { });
+        using var frame = MessageFramer.FrameMessage(
+            serializer,
+            10,
+            MessageType.Request,
+            new RpcRequest
+            {
+                MessageId = 10,
+                ServiceName = "Svc",
+                MethodName = "Upload",
+                Streams = new[]
+                {
+                    new RpcStreamHandle(700, RpcStreamKind.Binary),
+                    new RpcStreamHandle(700, RpcStreamKind.Items),
+                },
+            },
+            ReadOnlySpan<byte>.Empty);
+
+        var accepted = await inbound.AcceptRequestAsync(frame, 10, CancellationToken.None);
+
+        Assert.False(accepted);
+        Assert.Equal(MessageType.Error, sentType);
+        Assert.Single(protocolErrors, error => error.Contains("Duplicate inbound stream id '700'."));
+        Assert.Equal(0, inbound.ActiveInboundCount);
+        Assert.Equal(0, streams.InboundReceiverCount);
+    }
+
+    [Fact]
+    public async Task ActiveInboundStreamReuse_ReturnsProtocolErrorWithoutAliasingReceiver()
+    {
+        var serializer = new MessagePackRpcSerializer();
+        var streams = new RpcStreamManager(serializer, SendNoopAsync, exceptionTransformer: null);
+        streams.RegisterInbound(new[] { new RpcStreamHandle(701, RpcStreamKind.Binary) }, CancellationToken.None);
+        MessageType? sentType = null;
+        var protocolErrors = new List<string>();
+        var inbound = new RpcPeerInboundDispatcher(
+            serializer,
+            new RpcPeerOptions(),
+            streams,
+            (frame, ct) =>
+            {
+                Assert.True(MessageFramer.TryReadFrameHeader(frame, out _, out var type));
+                sentType = type;
+                return Task.CompletedTask;
+            },
+            (id, type, message, _) => protocolErrors.Add($"{id}:{type}:{message}"),
+            dispatchError: static (_, _) => { });
+        using var frame = MessageFramer.FrameMessage(
+            serializer,
+            11,
+            MessageType.Request,
+            new RpcRequest
+            {
+                MessageId = 11,
+                ServiceName = "Svc",
+                MethodName = "Upload",
+                Streams = new[] { new RpcStreamHandle(701, RpcStreamKind.Binary) },
+            },
+            ReadOnlySpan<byte>.Empty);
+
+        var accepted = await inbound.AcceptRequestAsync(frame, 11, CancellationToken.None);
+
+        Assert.False(accepted);
+        Assert.Equal(MessageType.Error, sentType);
+        Assert.Single(protocolErrors, error => error.Contains("Inbound stream id '701' is already active."));
+        Assert.Equal(0, inbound.ActiveInboundCount);
+        Assert.Equal(1, streams.InboundReceiverCount);
+        streams.RemoveInbound(701);
     }
 
     [Fact]

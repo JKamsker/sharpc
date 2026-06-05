@@ -11,6 +11,7 @@ internal sealed class ReceivedResponse : IDisposable
 {
     private Payload? _frame;
     private RpcOutboundStreamSet? _outboundStreams;
+    private RpcStreamReceiver? _stream;
 
     public ReceivedResponse(
         RpcResponse response,
@@ -21,14 +22,14 @@ internal sealed class ReceivedResponse : IDisposable
         Response = response;
         Payload = payload;
         _frame = frame;
-        Stream = stream;
+        _stream = stream;
     }
 
     public RpcResponse Response { get; }
 
     public ReadOnlyMemory<byte> Payload { get; }
 
-    public RpcStreamReceiver? Stream { get; }
+    public RpcStreamReceiver? Stream => _stream;
 
     public void AttachOutboundStreams(RpcOutboundStreamSet streams) =>
         _outboundStreams = streams;
@@ -36,12 +37,20 @@ internal sealed class ReceivedResponse : IDisposable
     public RpcOutboundStreamSet? DetachOutboundStreams() =>
         Interlocked.Exchange(ref _outboundStreams, null);
 
+    public RpcStreamReceiver? DetachStream() =>
+        Interlocked.Exchange(ref _stream, null);
+
     public void Dispose()
     {
         Interlocked.Exchange(ref _frame, null)?.Dispose();
         if (Interlocked.Exchange(ref _outboundStreams, null) is { } streams)
         {
             _ = streams.DisposeAsync();
+        }
+
+        if (Interlocked.Exchange(ref _stream, null) is { } stream)
+        {
+            stream.Cancel();
         }
     }
 
