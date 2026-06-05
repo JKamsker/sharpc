@@ -446,7 +446,9 @@ internal sealed class RpcStreamManager
     {
         foreach (var receiver in _receivers.Values)
         {
-            receiver.Complete(new ShaRpcConnectionException("Connection closed."));
+            // Abort (not Complete): completing the receiver's channel leaves any buffered-but-unread
+            // chunk holding its pooled Payload. Draining on teardown returns those rented buffers.
+            receiver.Abort(new ShaRpcConnectionException("Connection closed."));
         }
 
         foreach (var sender in _senders.Values)
