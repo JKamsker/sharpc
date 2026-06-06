@@ -58,8 +58,8 @@ internal sealed class RpcRemoteStream : Stream
     {
         if (disposing && Interlocked.Exchange(ref _disposed, 1) == 0)
         {
-            _current?.Dispose();
             _receiver.Cancel();
+            _current?.Dispose();
         }
 
         base.Dispose(disposing);

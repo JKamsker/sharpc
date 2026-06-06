@@ -28,6 +28,7 @@ internal sealed class RpcStreamReceiver
     }
 
     public RpcStreamHandle Handle { get; }
+    internal bool IsCompleted => Volatile.Read(ref _completed) != 0;
 
     public void AttachOutboundStreams(RpcOutboundStreamSet streams)
     {
@@ -49,11 +50,12 @@ internal sealed class RpcStreamReceiver
         }
     }
 
-    public bool TryAccept(Payload frame)
+    public RpcStreamAcceptResult TryAccept(Payload frame)
     {
         if (Volatile.Read(ref _completed) != 0)
         {
-            return false;
+            frame.Dispose();
+            return RpcStreamAcceptResult.Consumed;
         }
 
         var chunk = new RpcStreamChunk(
@@ -62,13 +64,13 @@ internal sealed class RpcStreamReceiver
             frame.Memory.Slice(MessageFramer.HeaderSize));
         if (_chunks.Writer.TryWrite(chunk))
         {
-            return true;
+            return RpcStreamAcceptResult.Accepted;
         }
 
         chunk.DisposeWithoutCredit();
         Abort(new InvalidDataException("Stream receiver window was exceeded."));
-        _manager.RemoveCompletedInbound(Handle.StreamId);
-        return false;
+        _manager.RemoveCompletedInbound(this);
+        return RpcStreamAcceptResult.Rejected;
     }
 
     public async ValueTask<RpcStreamChunk?> ReadChunkAsync(CancellationToken ct)
@@ -84,14 +86,14 @@ internal sealed class RpcStreamReceiver
             }
 
             await _chunks.Reader.Completion.ConfigureAwait(false);
-            _manager.RemoveCompletedInbound(Handle.StreamId);
+            _manager.RemoveCompletedInbound(this);
             return null;
         }
         catch
         {
             if (_chunks.Reader.Completion.IsCompleted)
             {
-                _manager.RemoveCompletedInbound(Handle.StreamId);
+                _manager.RemoveCompletedInbound(this);
             }
 
             throw;
@@ -157,7 +159,7 @@ internal sealed class RpcStreamReceiver
         var sendCancel = TryCompleteForCancel();
         if (!sendCancel)
         {
-            _manager.RemoveCompletedInbound(Handle.StreamId);
+            _manager.RemoveCompletedInbound(this);
         }
 
         DrainChunks();
@@ -226,7 +228,7 @@ internal sealed class RpcStreamReceiver
         {
             RpcDiagnostics.Report("Stream credit notification failed", ex);
             Abort(new ShaRpcConnectionException("Stream credit notification failed.", ex));
-            _manager.RemoveCompletedInbound(Handle.StreamId);
+            _manager.RemoveCompletedInbound(this);
         }
     }
 }

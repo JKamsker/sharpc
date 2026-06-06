@@ -30,7 +30,7 @@ internal sealed class RpcStreamManager
         _sendAsync = sendAsync;
         _exceptionTransformer = exceptionTransformer;
     }
-    internal int InboundReceiverCount => _receivers.Count;
+    internal int InboundReceiverCount => _receivers.Values.Count(receiver => !receiver.IsCompleted);
     internal int OutboundSenderCount => _senders.Count;
     internal int PendingCreditCount => _pendingCredits.Count;
     internal int CanceledInboundCount => _canceledInbound.Count;
@@ -45,14 +45,12 @@ internal sealed class RpcStreamManager
         {
             throw new ShaRpcProtocolException("Stream id must not be zero.");
         }
-
         RpcStreamValidation.ValidateKind(handle.Kind);
-        _canceledInbound.ThrowIfOverflowed();
         if (!_receivers.TryGetValue(handle.StreamId, out var existing))
         {
+            _canceledInbound.ThrowIfOverflowed();
             throw new ShaRpcProtocolException($"Inbound stream id '{handle.StreamId}' was not registered.");
         }
-
         if (existing.Handle.Kind != handle.Kind)
         {
             throw new ShaRpcProtocolException(
@@ -73,7 +71,6 @@ internal sealed class RpcStreamManager
             {
                 continue;
             }
-
             if (_reservedOutbound.TryAdd(streamId, 0))
             {
                 return new RpcStreamHandle(streamId, kind);
@@ -87,7 +84,6 @@ internal sealed class RpcStreamManager
         {
             throw new ShaRpcProtocolException("Stream id must not be zero.");
         }
-
         if (_senders.ContainsKey(streamId) || !_reservedOutbound.TryAdd(streamId, 0))
         {
             throw new ShaRpcProtocolException($"Duplicate outbound stream id '{streamId}'.");
@@ -107,7 +103,6 @@ internal sealed class RpcStreamManager
         {
             return;
         }
-
         foreach (var attachment in attachments)
         {
             if (attachment is not null)
@@ -122,7 +117,6 @@ internal sealed class RpcStreamManager
         {
             return;
         }
-
         var registered = new List<int>(handles.Length);
         try
         {
@@ -136,12 +130,19 @@ internal sealed class RpcStreamManager
         {
             foreach (var streamId in registered)
             {
-                if (_receivers.TryRemove(streamId, out var receiver))
+                if (_receivers.TryGetValue(streamId, out var receiver))
                 {
+                    try
+                    {
+                        RemoveCanceledInbound(streamId);
+                    }
+                    catch (Exception ex)
+                    {
+                        RpcDiagnostics.Report("Rolled back inbound stream tracking failed", ex);
+                    }
                     receiver.Abort(new ShaRpcProtocolException("Inbound stream registration failed."));
                 }
             }
-
             throw;
         }
     }
@@ -151,7 +152,6 @@ internal sealed class RpcStreamManager
         {
             throw new ShaRpcProtocolException("Stream id must not be zero.");
         }
-
         RpcStreamValidation.ValidateKind(handle.Kind);
         var receiver = new RpcStreamReceiver(this, handle);
         lock (_inboundGate)
@@ -162,13 +162,14 @@ internal sealed class RpcStreamManager
                 throw new ShaRpcProtocolException(
                     $"Inbound stream id '{handle.StreamId}' is awaiting a terminal frame after local cancellation.");
             }
-
-            if (!_receivers.TryAdd(handle.StreamId, receiver))
+            if (!_receivers.TryAdd(handle.StreamId, receiver) &&
+                (!_receivers.TryGetValue(handle.StreamId, out var existing) ||
+                 !existing.IsCompleted ||
+                 !_receivers.TryUpdate(handle.StreamId, receiver, existing)))
             {
                 throw new ShaRpcProtocolException($"Inbound stream id '{handle.StreamId}' is already active.");
             }
         }
-
         receiver.SendCreditBestEffort(WindowSize, ct);
         return receiver;
     }
@@ -180,7 +181,6 @@ internal sealed class RpcStreamManager
         {
             return RpcOutboundStreamSet.Empty;
         }
-
         var rows = new (RpcStreamAttachment Attachment, RpcStreamSendState State)[attachments.Length];
         var added = new RpcStreamSendState[attachments.Length];
         var addedCount = 0;
@@ -195,14 +195,12 @@ internal sealed class RpcStreamManager
                     state.Dispose();
                     throw new ShaRpcProtocolException($"Duplicate outbound stream id '{attachments[i].Handle.StreamId}'.");
                 }
-
                 added[addedCount++] = state;
                 DrainPendingOutbound(state);
                 _reservedOutbound.TryRemove(state.StreamId, out _);
                 DrainPendingOutbound(state);
                 rows[i] = (attachments[i], state);
             }
-
             return new RpcOutboundStreamSet(this, _serializer, rows);
         }
         catch
@@ -211,17 +209,14 @@ internal sealed class RpcStreamManager
             {
                 RemoveOutbound(added[i].StreamId);
             }
-
             foreach (var attachment in attachments)
             {
                 if (attachment is null)
                 {
                     continue;
                 }
-
                 ReleaseOutboundReservation(attachment.Handle.StreamId);
             }
-
             throw;
         }
     }
@@ -231,26 +226,21 @@ internal sealed class RpcStreamManager
         {
             return _canceledInbound.TryConsumeItem(streamId, frame);
         }
-
         AfterInboundReceiverObservedForTest?.Invoke(streamId, receiver);
-        if (receiver.TryAccept(frame))
-        {
-            return true;
-        }
-
-        return _canceledInbound.TryConsumeItem(streamId, frame);
+        var result = receiver.TryAccept(frame);
+        return result is RpcStreamAcceptResult.Accepted or RpcStreamAcceptResult.Consumed ||
+            _canceledInbound.TryConsumeItem(streamId, frame);
     }
     public void CompleteInbound(int streamId) => CompleteInbound(streamId, error: null);
     public void CompleteInbound(int streamId, Exception? error)
     {
-        if (_receivers.TryGetValue(streamId, out var receiver) &&
-            receiver.Complete(error))
-        {
-            return;
-        }
-
         lock (_inboundGate)
         {
+            if (_receivers.TryGetValue(streamId, out var receiver))
+            {
+                receiver.Complete(error);
+                return;
+            }
             _canceledInbound.Remove(streamId);
         }
     }
@@ -260,7 +250,6 @@ internal sealed class RpcStreamManager
         {
             return false;
         }
-
         lock (_inboundGate)
         {
             if (_canceledInbound.TryRemove(streamId))
@@ -268,7 +257,6 @@ internal sealed class RpcStreamManager
                 return true;
             }
         }
-
         CompleteInbound(
             streamId,
             new ShaRpcRemoteException(
@@ -284,13 +272,11 @@ internal sealed class RpcStreamManager
         {
             return false;
         }
-
         if (_senders.TryGetValue(streamId, out var state))
         {
             state.AddCredit(count);
             return true;
         }
-
         AfterOutboundSenderMissForTest?.Invoke(streamId);
         if (!_reservedOutbound.ContainsKey(streamId))
         {
@@ -298,10 +284,8 @@ internal sealed class RpcStreamManager
             {
                 state.AddCredit(count);
             }
-
             return true;
         }
-
         AfterReservedOutboundCreditObservedForTest?.Invoke(streamId);
         _pendingCredits.AddOrUpdate(
             streamId,
@@ -316,7 +300,6 @@ internal sealed class RpcStreamManager
         {
             _pendingCredits.TryRemove(streamId, out _);
         }
-
         return true;
     }
     public void CancelOutbound(int streamId)
@@ -326,7 +309,6 @@ internal sealed class RpcStreamManager
             state.Cancel();
             return;
         }
-
         AfterOutboundSenderMissForTest?.Invoke(streamId);
         if (!_reservedOutbound.ContainsKey(streamId))
         {
@@ -334,10 +316,8 @@ internal sealed class RpcStreamManager
             {
                 state.Cancel();
             }
-
             return;
         }
-
         _canceledOutbound.TryAdd(streamId, 0);
         if (_senders.TryGetValue(streamId, out state) &&
             _canceledOutbound.TryRemove(streamId, out _))
@@ -350,11 +330,16 @@ internal sealed class RpcStreamManager
         }
     }
     public void RemoveInbound(int streamId) => AbortInbound(streamId);
-    internal void RemoveCompletedInbound(int streamId)
+    internal void RemoveCompletedInbound(RpcStreamReceiver receiver)
     {
         lock (_inboundGate)
         {
-            _receivers.TryRemove(streamId, out _);
+            var streamId = receiver.Handle.StreamId;
+            if (_receivers.TryGetValue(streamId, out var current) &&
+                ReferenceEquals(current, receiver))
+            {
+                _receivers.TryRemove(streamId, out _);
+            }
         }
     }
     internal void RemoveCanceledInbound(int streamId)
@@ -379,7 +364,6 @@ internal sealed class RpcStreamManager
             state.Dispose();
         }
     }
-
     internal void RemoveCompletedOutbound(int streamId)
     {
         ClearOutboundTracking(streamId);
@@ -388,7 +372,6 @@ internal sealed class RpcStreamManager
             state.DisposeAfterCompletion();
         }
     }
-
     public async Task SendStreamItemAsync(int streamId, ReadOnlyMemory<byte> payload, CancellationToken ct)
     {
         var state = GetSender(streamId);
@@ -396,7 +379,6 @@ internal sealed class RpcStreamManager
         using var frame = MessageFramer.FrameToPayload(streamId, MessageType.StreamItem, payload.Span);
         await _sendAsync(frame.Memory, ct).ConfigureAwait(false);
     }
-
     public async Task SendStreamItemAsync<T>(
         int streamId,
         T item,
@@ -411,19 +393,15 @@ internal sealed class RpcStreamManager
         using var frame = RpcRawFrame.Finish(writer);
         await _sendAsync(frame.Memory, ct).ConfigureAwait(false);
     }
-
     public Task SendStreamCompleteAsync(int streamId, CancellationToken ct) =>
         SendControlAsync(streamId, MessageType.StreamComplete, ct);
-
     public Task SendCancelAsync(int streamId, CancellationToken ct) =>
         SendControlAsync(streamId, MessageType.StreamCancel, ct);
-
     public async Task SendCreditAsync(int streamId, int count, CancellationToken ct)
     {
         using var frame = RpcRawFrame.FrameInt32(streamId, MessageType.StreamCredit, count);
         await _sendAsync(frame.Memory, ct).ConfigureAwait(false);
     }
-
     public async Task SendStreamErrorAsync(int streamId, Exception error, CancellationToken ct)
     {
         var rpcError = RpcErrors.FromException(error, _exceptionTransformer);
@@ -441,29 +419,44 @@ internal sealed class RpcStreamManager
             ReadOnlySpan<byte>.Empty);
         await _sendAsync(frame.Memory, ct).ConfigureAwait(false);
     }
-
     public void Stop()
     {
-        foreach (var receiver in _receivers.Values)
+        var receivers = new List<RpcStreamReceiver>();
+        lock (_inboundGate)
         {
-            // Abort (not Complete): completing the receiver's channel leaves any buffered-but-unread
-            // chunk holding its pooled Payload. Draining on teardown returns those rented buffers.
+            _canceledInbound.Clear();
+            foreach (var pair in _receivers)
+            {
+                try
+                {
+                    _canceledInbound.Add(pair.Key);
+                }
+                catch (Exception ex)
+                {
+                    RpcDiagnostics.Report("Stopped inbound stream tracking failed", ex);
+                }
+                if (_receivers.TryRemove(pair.Key, out var receiver))
+                {
+                    receivers.Add(receiver);
+                }
+            }
+        }
+        foreach (var receiver in receivers)
+        {
             receiver.Abort(new ShaRpcConnectionException("Connection closed."));
         }
-
-        foreach (var sender in _senders.Values)
+        foreach (var streamId in _senders.Keys)
         {
-            sender.Cancel();
+            RemoveOutbound(streamId);
         }
-
-        _canceledInbound.Clear();
+        _pendingCredits.Clear();
+        _reservedOutbound.Clear();
+        _canceledOutbound.Clear();
     }
-
     private RpcStreamSendState GetSender(int streamId) =>
         _senders.TryGetValue(streamId, out var state)
             ? state
             : throw new ShaRpcConnectionException($"Stream '{streamId}' is no longer active.");
-
     private void DrainPendingOutbound(RpcStreamSendState state)
     {
         if (_canceledOutbound.TryRemove(state.StreamId, out _))
@@ -476,14 +469,12 @@ internal sealed class RpcStreamManager
             state.AddCredit(credits);
         }
     }
-
     private void ClearOutboundTracking(int streamId)
     {
         _pendingCredits.TryRemove(streamId, out _);
         _reservedOutbound.TryRemove(streamId, out _);
         _canceledOutbound.TryRemove(streamId, out _);
     }
-
     private void AbortInbound(int streamId)
     {
         if (_receivers.TryRemove(streamId, out var receiver))
@@ -491,7 +482,6 @@ internal sealed class RpcStreamManager
             receiver.Abort(new ShaRpcConnectionException($"Stream '{streamId}' is no longer active."));
         }
     }
-
     private async Task SendControlAsync(int streamId, MessageType type, CancellationToken ct)
     {
         using var frame = MessageFramer.FrameToPayload(streamId, type, ReadOnlySpan<byte>.Empty);

@@ -116,15 +116,22 @@ internal sealed class RpcCanceledInboundStreams
         }
 
         _order.Remove(node);
+        if (_streamIds.Count < Capacity)
+        {
+            _overflowed = false;
+        }
+
         return true;
     }
 
     private void ThrowIfOverflowedLocked()
     {
-        if (_overflowed)
+        if (_overflowed && _streamIds.Count >= Capacity)
         {
             ThrowOverflow();
         }
+
+        _overflowed = false;
     }
 
     private static void ThrowOverflow() =>

@@ -44,6 +44,11 @@ internal static class RpcPipeBridge
                 }
             }
         }
+        catch (OperationCanceledException ex) when (ct.IsCancellationRequested)
+        {
+            receiver.Cancel();
+            await writer.CompleteAsync(ex).ConfigureAwait(false);
+        }
         catch (Exception ex)
         {
             await writer.CompleteAsync(ex).ConfigureAwait(false);
