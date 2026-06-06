@@ -10,6 +10,8 @@ namespace ShaRPC.Core.Streaming;
 /// </summary>
 public abstract class RpcStreamAttachment
 {
+    private int _sourceDisposed;
+
     private protected RpcStreamAttachment(RpcStreamHandle handle) => Handle = handle;
 
     public RpcStreamHandle Handle { get; }
@@ -60,13 +62,20 @@ public abstract class RpcStreamAttachment
         ISerializer serializer,
         CancellationToken ct);
 
-    internal virtual ValueTask DisposeSourceAsync() => default;
+    // Releases the owned source exactly once, whether the call comes from the pump's own finally or
+    // from a sibling stream's best-effort cleanup while this pump has already completed. The set owns
+    // the source (leaveOpen:false / completeReader:true), so disposing it twice would violate the
+    // single-ownership contract for a caller-supplied, non-idempotent source.
+    internal ValueTask DisposeSourceOnceAsync() =>
+        Interlocked.Exchange(ref _sourceDisposed, 1) == 0 ? DisposeSourceCoreAsync() : default;
+
+    private protected virtual ValueTask DisposeSourceCoreAsync() => default;
 
     internal async ValueTask DisposeSourceBestEffortAsync(string operation)
     {
         try
         {
-            await DisposeSourceAsync().ConfigureAwait(false);
+            await DisposeSourceOnceAsync().ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -118,14 +127,11 @@ public abstract class RpcStreamAttachment
             finally
             {
                 ArrayPool<byte>.Shared.Return(buffer);
-                if (!_leaveOpen)
-                {
-                    await DisposeStreamAsync(_stream).ConfigureAwait(false);
-                }
+                await DisposeSourceOnceAsync().ConfigureAwait(false);
             }
         }
 
-        internal override ValueTask DisposeSourceAsync() =>
+        private protected override ValueTask DisposeSourceCoreAsync() =>
             _leaveOpen ? default : DisposeStreamAsync(_stream);
     }
 
@@ -175,14 +181,11 @@ public abstract class RpcStreamAttachment
             }
             finally
             {
-                if (_completeReader)
-                {
-                    await _pipe.Reader.CompleteAsync().ConfigureAwait(false);
-                }
+                await DisposeSourceOnceAsync().ConfigureAwait(false);
             }
         }
 
-        internal override ValueTask DisposeSourceAsync() =>
+        private protected override ValueTask DisposeSourceCoreAsync() =>
             _completeReader ? _pipe.Reader.CompleteAsync() : default;
     }
 
