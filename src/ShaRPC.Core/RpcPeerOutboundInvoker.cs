@@ -426,13 +426,10 @@ internal sealed partial class RpcPeerOutboundInvoker : IRpcInvoker
             // an incoming response race on a single atomic removal: whichever removes the entry first
             // wins and the loser is a guaranteed no-op. Cancelling the TCS directly could win the race
             // against TryComplete and discard an already-delivered response as a spurious timeout.
+            var timeoutState = new TimeoutCancelState(_pending, messageId);
             using (timeoutCts.Token.Register(
-                static state =>
-                {
-                    var pendingState = ((ShaRpcPendingRequests Pending, int MessageId))state!;
-                    pendingState.Pending.TryCancel(pendingState.MessageId);
-                },
-                (_pending, messageId)))
+                static state => ((TimeoutCancelState)state!).Cancel(),
+                timeoutState))
             {
                 try
                 {
@@ -472,5 +469,19 @@ internal sealed partial class RpcPeerOutboundInvoker : IRpcInvoker
                 await outboundStreams.DisposeAsync().ConfigureAwait(false);
             }
         }
+    }
+
+    private sealed class TimeoutCancelState
+    {
+        private readonly ShaRpcPendingRequests _pending;
+        private readonly int _messageId;
+
+        public TimeoutCancelState(ShaRpcPendingRequests pending, int messageId)
+        {
+            _pending = pending;
+            _messageId = messageId;
+        }
+
+        public void Cancel() => _pending.TryCancel(_messageId);
     }
 }

@@ -119,6 +119,13 @@ internal sealed class RpcStreamManager
         {
             return;
         }
+
+        if (handles.Length == 1)
+        {
+            RegisterInbound(handles[0], ct);
+            return;
+        }
+
         var registered = new List<int>(handles.Length);
         try
         {
