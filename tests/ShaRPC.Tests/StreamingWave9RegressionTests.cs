@@ -45,7 +45,7 @@ public sealed class StreamingWave9RegressionTests
             handle.StreamId,
             MessageType.StreamItem,
             new byte[] { 99 });
-        Assert.False(streams.TryAcceptItem(handle.StreamId, rejected));
+        Assert.True(streams.TryAcceptItem(handle.StreamId, rejected));
 
         Assert.Throws<ObjectDisposedException>(() => _ = rejected.Memory);
         await Assert.ThrowsAsync<InvalidDataException>(() =>

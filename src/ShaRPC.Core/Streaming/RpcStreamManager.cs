@@ -271,7 +271,7 @@ internal sealed class RpcStreamManager
         }
         AfterInboundReceiverObservedForTest?.Invoke(streamId, receiver);
         var result = receiver.TryAccept(frame);
-        return result is RpcStreamAcceptResult.Accepted or RpcStreamAcceptResult.Consumed ||
+        return result is RpcStreamAcceptResult.Accepted or RpcStreamAcceptResult.Consumed or RpcStreamAcceptResult.Rejected ||
             _canceledInbound.TryConsumeItem(streamId, frame);
     }
     public void CompleteInbound(int streamId) => CompleteInbound(streamId, error: null);
