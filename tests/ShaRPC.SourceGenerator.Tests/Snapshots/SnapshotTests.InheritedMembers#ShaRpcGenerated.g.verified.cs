@@ -9,13 +9,45 @@ namespace ShaRPC.Generated
     /// </summary>
     public static class ShaRpcGenerated
     {
+        private static readonly global::ShaRPC.Core.Generated.ShaRpcGeneratedMethod[] s_service0Methods =
+        {
+            new global::ShaRPC.Core.Generated.ShaRpcGeneratedMethod(
+                "DerivedAsync",
+                "DerivedAsync",
+                typeof(global::System.Threading.Tasks.Task<string>),
+                typeof(string),
+                global::ShaRPC.Core.Generated.ShaRpcGeneratedReturnKind.TaskOfT,
+                false,
+                new global::ShaRPC.Core.Generated.ShaRpcGeneratedParameter[]
+                {
+                }),
+            new global::ShaRPC.Core.Generated.ShaRpcGeneratedMethod(
+                "BaseAsync",
+                "BaseAsync",
+                typeof(global::System.Threading.Tasks.Task<int>),
+                typeof(int),
+                global::ShaRPC.Core.Generated.ShaRpcGeneratedReturnKind.TaskOfT,
+                false,
+                new global::ShaRPC.Core.Generated.ShaRpcGeneratedParameter[]
+                {
+                    new global::ShaRPC.Core.Generated.ShaRpcGeneratedParameter(
+                        "x",
+                        typeof(int),
+                        0,
+                        false,
+                        false,
+                        null),
+                }),
+        };
+
         private static readonly global::ShaRPC.Core.Generated.ShaRpcGeneratedService[] s_services =
         {
             new global::ShaRPC.Core.Generated.ShaRpcGeneratedService(
                 typeof(global::Snap.Inherit.IDerived),
                 typeof(global::Snap.Inherit.DerivedProxy),
                 typeof(global::Snap.Inherit.DerivedDispatcher),
-                "IDerived"),
+                "IDerived",
+                s_service0Methods),
         };
 
         static ShaRpcGenerated()

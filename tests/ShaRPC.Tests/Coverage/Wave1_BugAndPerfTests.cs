@@ -192,18 +192,22 @@ public sealed class Wave1_BugAndPerfTests
     [Fact]
     public void RpcDiagnostics_Report_SingleHandler_InvokesCorrectly()
     {
+        var operation = "test-op-" + Guid.NewGuid().ToString("N");
         var received = new List<string>();
         EventHandler<RpcDiagnosticErrorEventArgs> handler = (_, e) =>
         {
-            received.Add(e.Operation);
+            if (e.Operation == operation)
+            {
+                received.Add(e.Operation);
+            }
         };
 
         RpcDiagnostics.Error += handler;
         try
         {
-            RpcDiagnostics.Report("test-op", new InvalidOperationException("boom"));
+            RpcDiagnostics.Report(operation, new InvalidOperationException("boom"));
             Assert.Single(received);
-            Assert.Equal("test-op", received[0]);
+            Assert.Equal(operation, received[0]);
         }
         finally
         {
@@ -214,20 +218,39 @@ public sealed class Wave1_BugAndPerfTests
     [Fact]
     public void RpcDiagnostics_Report_MultipleHandlers_IsolatesFailures()
     {
+        var operation = "test-op-" + Guid.NewGuid().ToString("N");
         var received = new List<string>();
-        EventHandler<RpcDiagnosticErrorEventArgs> good1 = (_, e) => received.Add("good1:" + e.Operation);
-        EventHandler<RpcDiagnosticErrorEventArgs> bad = (_, _) => throw new Exception("handler error");
-        EventHandler<RpcDiagnosticErrorEventArgs> good2 = (_, e) => received.Add("good2:" + e.Operation);
+        EventHandler<RpcDiagnosticErrorEventArgs> good1 = (_, e) =>
+        {
+            if (e.Operation == operation)
+            {
+                received.Add("good1:" + e.Operation);
+            }
+        };
+        EventHandler<RpcDiagnosticErrorEventArgs> bad = (_, e) =>
+        {
+            if (e.Operation == operation)
+            {
+                throw new Exception("handler error");
+            }
+        };
+        EventHandler<RpcDiagnosticErrorEventArgs> good2 = (_, e) =>
+        {
+            if (e.Operation == operation)
+            {
+                received.Add("good2:" + e.Operation);
+            }
+        };
 
         RpcDiagnostics.Error += good1;
         RpcDiagnostics.Error += bad;
         RpcDiagnostics.Error += good2;
         try
         {
-            RpcDiagnostics.Report("test-op", new InvalidOperationException("boom"));
+            RpcDiagnostics.Report(operation, new InvalidOperationException("boom"));
 
-            Assert.Contains("good1:test-op", received);
-            Assert.Contains("good2:test-op", received);
+            Assert.Contains("good1:" + operation, received);
+            Assert.Contains("good2:" + operation, received);
         }
         finally
         {

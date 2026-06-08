@@ -212,6 +212,12 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
             .Collect()
             .Select(static (arr, ct) => ServiceModelOrdering.SortIdentities(arr, ct))
             .WithTrackingName("AllServices");
+
+        var allServiceMetadata = models
+            .Collect()
+            .Select(static (arr, ct) => ServiceModelOrdering.Sort(arr, ct))
+            .WithTrackingName("AllServiceMetadata");
+
         context.RegisterSourceOutput(allServices, static (spc, services) =>
         {
             if (services.IsEmpty)
@@ -225,7 +231,30 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
                 spc.AddSource(
                     "ShaRpcExtensions.g.cs",
                     SourceText.From(extensionsSource, Encoding.UTF8));
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                spc.ReportDiagnostic(Diagnostic.Create(
+                    s_generatorErrorRule,
+                    Location.None,
+                    "ShaRpcExtensions",
+                    ex.ToString()));
+            }
+        });
 
+        context.RegisterSourceOutput(allServiceMetadata, static (spc, services) =>
+        {
+            if (services.IsEmpty)
+            {
+                return;
+            }
+
+            try
+            {
                 var factorySource = GeneratedFactoryGenerator.Generate(services, spc.CancellationToken);
                 spc.AddSource(
                     "ShaRpcGenerated.g.cs",
@@ -240,7 +269,7 @@ public sealed class ShaRpcGenerator : IIncrementalGenerator
                 spc.ReportDiagnostic(Diagnostic.Create(
                     s_generatorErrorRule,
                     Location.None,
-                    "ShaRpcExtensions",
+                    "ShaRpcGenerated",
                     ex.ToString()));
             }
         });

@@ -213,7 +213,8 @@ internal static class AsyncSiblingProjector
             "global::System.Threading.CancellationToken",
             "global::System.Threading.CancellationToken",
             IsCancellationToken: true,
-            HasDefaultValue: true));
+            HasDefaultValue: true,
+            MetadataType: "global::System.Threading.CancellationToken"));
 
         return parameters.ToEquatableArray();
     }

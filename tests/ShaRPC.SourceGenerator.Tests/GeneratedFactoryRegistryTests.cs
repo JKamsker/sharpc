@@ -102,6 +102,107 @@ public class GeneratedFactoryRegistryTests
     }
 
     [Fact]
+    public void GeneratedFactory_ExposesServiceMethodMetadata()
+    {
+        const string source = """
+            using ShaRPC.Core.Attributes;
+            using System.Threading;
+            using System.Threading.Tasks;
+
+            namespace Metadata.Sample
+            {
+                [ShaRpcService(Name = "ChildWire")]
+                public interface IChild
+                {
+                    ValueTask<int> CountAsync(CancellationToken ct = default);
+                }
+
+                [ShaRpcService(Name = "RootWire")]
+                public interface IRoot
+                {
+                    [ShaRpcMethod(Name = "sum")]
+                    Task<int> AddAsync(int a, string label = "guest", CancellationToken ct = default);
+
+                    ValueTask<string> NameAsync(int id = 7);
+
+                    Task<IChild> OpenAsync();
+
+                    int Sync(int value);
+
+                    void Ping();
+                }
+            }
+            """;
+
+        var assembly = CompileAndLoad(source);
+        var rootType = assembly.GetType("Metadata.Sample.IRoot")!;
+        var childType = assembly.GetType("Metadata.Sample.IChild")!;
+        var generated = assembly.GetType("ShaRPC.Generated.ShaRpcGenerated")
+            ?? throw new InvalidOperationException("Generated factory type not found.");
+        var services = Assert.IsAssignableFrom<IReadOnlyList<ShaRpcGeneratedService>>(
+            generated.GetProperty("Services")!.GetValue(null));
+
+        var root = services.Single(service => service.ServiceType == rootType);
+        var child = services.Single(service => service.ServiceType == childType);
+
+        Assert.Equal("RootWire", root.ServiceName);
+        Assert.Equal("ChildWire", child.ServiceName);
+        Assert.Equal(5, root.Methods.Count);
+
+        var add = root.Methods.Single(method => method.Name == "AddAsync");
+        Assert.Equal("sum", add.WireName);
+        Assert.Equal(typeof(Task<int>), add.ReturnType);
+        Assert.Equal(typeof(int), add.ResultType);
+        Assert.Equal(ShaRpcGeneratedReturnKind.TaskOfT, add.ReturnKind);
+        Assert.False(add.ReturnsNestedService);
+
+        Assert.Equal(3, add.Parameters.Count);
+        Assert.Equal("a", add.Parameters[0].Name);
+        Assert.Equal(typeof(int), add.Parameters[0].Type);
+        Assert.Equal(0, add.Parameters[0].Position);
+        Assert.False(add.Parameters[0].HasDefaultValue);
+        Assert.Null(add.Parameters[0].DefaultValue);
+
+        Assert.Equal("label", add.Parameters[1].Name);
+        Assert.Equal(typeof(string), add.Parameters[1].Type);
+        Assert.Equal(1, add.Parameters[1].Position);
+        Assert.True(add.Parameters[1].HasDefaultValue);
+        Assert.Equal("guest", add.Parameters[1].DefaultValue);
+
+        Assert.Equal("ct", add.Parameters[2].Name);
+        Assert.Equal(typeof(CancellationToken), add.Parameters[2].Type);
+        Assert.Equal(2, add.Parameters[2].Position);
+        Assert.True(add.Parameters[2].IsCancellationToken);
+        Assert.True(add.Parameters[2].HasDefaultValue);
+        Assert.Null(add.Parameters[2].DefaultValue);
+
+        var name = root.Methods.Single(method => method.Name == "NameAsync");
+        Assert.Equal(typeof(ValueTask<string>), name.ReturnType);
+        Assert.Equal(typeof(string), name.ResultType);
+        Assert.Equal(ShaRpcGeneratedReturnKind.ValueTaskOfT, name.ReturnKind);
+        Assert.Equal(7, name.Parameters.Single().DefaultValue);
+
+        var open = root.Methods.Single(method => method.Name == "OpenAsync");
+        Assert.Equal(typeof(Task<>).MakeGenericType(childType), open.ReturnType);
+        Assert.Equal(childType, open.ResultType);
+        Assert.Equal(ShaRpcGeneratedReturnKind.TaskOfNestedService, open.ReturnKind);
+        Assert.True(open.ReturnsNestedService);
+
+        var sync = root.Methods.Single(method => method.Name == "Sync");
+        Assert.Equal(typeof(int), sync.ReturnType);
+        Assert.Null(sync.ResultType);
+        Assert.Equal(ShaRpcGeneratedReturnKind.Sync, sync.ReturnKind);
+
+        var ping = root.Methods.Single(method => method.Name == "Ping");
+        Assert.Equal(typeof(void), ping.ReturnType);
+        Assert.Null(ping.ResultType);
+        Assert.Equal(ShaRpcGeneratedReturnKind.Void, ping.ReturnKind);
+
+        var registryService = ShaRpcServiceRegistry.GetService(rootType);
+        Assert.Same(root.Methods, registryService.Methods);
+    }
+
+    [Fact]
     public void Registry_ReportsClearDiagnosticWhenGeneratorDidNotRun()
     {
         var ex = Assert.Throws<InvalidOperationException>(() =>

@@ -90,7 +90,9 @@ internal sealed record MethodModel(
     bool RequiresDispatcherReceiverCast = false,
     string? UnsupportedReason = null,
     SubServiceInfo? SubService = null,
-    string RawRpcName = "");
+    string RawRpcName = "",
+    string MetadataReturnType = "",
+    string? MetadataResultType = null);
 
 /// <summary>
 /// Immutable, value-equatable representation of a method parameter.
@@ -112,7 +114,8 @@ internal sealed record ParameterModel(
     bool HasDefaultValue = false,
     string DefaultValueLiteral = "",
     ParameterStreamKind StreamKind = ParameterStreamKind.None,
-    string? StreamItemType = null);
+    string? StreamItemType = null,
+    string MetadataType = "");
 
 /// <summary>
 /// A <see cref="ServiceModel"/> paired with its computed async-sibling projection. Lives

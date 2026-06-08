@@ -28,6 +28,7 @@ internal static class MethodModelFactory
 
         var returnType = methodSymbol.ReturnType;
         var returnKind = ReturnTypeClassifier.Classify(returnType, ct, out var unwrappedReturnType, out var subService);
+        var metadataTypes = MethodMetadataTypesFactory.Get(methodSymbol, returnKind, ct);
         var declaredReturnType = returnType.ToDisplayString(s_qualifiedFormat);
         var typeParameterList = MethodSignatureFormatter.GetTypeParameterList(methodSymbol, ct);
         var constraintClauses = MethodSignatureFormatter.GetConstraintClauses(methodSymbol, ct);
@@ -163,7 +164,8 @@ internal static class MethodModelFactory
                 param.HasExplicitDefaultValue,
                 defaultValueLiteral,
                 streamKind,
-                streamItemType?.ToDisplayString(s_qualifiedFormat)));
+                streamItemType?.ToDisplayString(s_qualifiedFormat),
+                MetadataType: TypeOfExpressionFormatter.Format(param.Type, ct)));
         }
 
         if (unsupportedReason is not null)
@@ -194,7 +196,9 @@ internal static class MethodModelFactory
             ConstraintClauses: constraintClauses,
             UnsupportedReason: unsupportedReason,
             SubService: subService,
-            RawRpcName: configuredRpcName);
+            RawRpcName: configuredRpcName,
+            MetadataReturnType: metadataTypes.ReturnType,
+            MetadataResultType: metadataTypes.ResultType);
     }
 
     internal static string GetExplicitImplementationType(INamedTypeSymbol type) =>

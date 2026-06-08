@@ -9,13 +9,42 @@ namespace ShaRPC.Generated
     /// </summary>
     public static class ShaRpcGenerated
     {
+        private static readonly global::ShaRPC.Core.Generated.ShaRpcGeneratedMethod[] s_service0Methods =
+        {
+            new global::ShaRPC.Core.Generated.ShaRpcGeneratedMethod(
+                "AddAsync",
+                "AddAsync",
+                typeof(global::System.Threading.Tasks.Task<int>),
+                typeof(int),
+                global::ShaRPC.Core.Generated.ShaRpcGeneratedReturnKind.TaskOfT,
+                false,
+                new global::ShaRPC.Core.Generated.ShaRpcGeneratedParameter[]
+                {
+                    new global::ShaRPC.Core.Generated.ShaRpcGeneratedParameter(
+                        "a",
+                        typeof(int),
+                        0,
+                        false,
+                        false,
+                        null),
+                    new global::ShaRPC.Core.Generated.ShaRpcGeneratedParameter(
+                        "b",
+                        typeof(int),
+                        1,
+                        false,
+                        false,
+                        null),
+                }),
+        };
+
         private static readonly global::ShaRPC.Core.Generated.ShaRpcGeneratedService[] s_services =
         {
             new global::ShaRPC.Core.Generated.ShaRpcGeneratedService(
                 typeof(global::Snap.One.ICalculator),
                 typeof(global::Snap.One.CalculatorProxy),
                 typeof(global::Snap.One.CalculatorDispatcher),
-                "ICalculator"),
+                "ICalculator",
+                s_service0Methods),
         };
 
         static ShaRpcGenerated()

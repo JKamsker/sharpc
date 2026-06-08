@@ -9,18 +9,55 @@ namespace ShaRPC.Generated
     /// </summary>
     public static class ShaRpcGenerated
     {
+        private static readonly global::ShaRPC.Core.Generated.ShaRpcGeneratedMethod[] s_service0Methods =
+        {
+            new global::ShaRPC.Core.Generated.ShaRpcGeneratedMethod(
+                "AAsync",
+                "AAsync",
+                typeof(global::System.Threading.Tasks.Task<int>),
+                typeof(int),
+                global::ShaRPC.Core.Generated.ShaRpcGeneratedReturnKind.TaskOfT,
+                false,
+                new global::ShaRPC.Core.Generated.ShaRpcGeneratedParameter[]
+                {
+                    new global::ShaRPC.Core.Generated.ShaRpcGeneratedParameter(
+                        "x",
+                        typeof(int),
+                        0,
+                        false,
+                        false,
+                        null),
+                }),
+        };
+
+        private static readonly global::ShaRPC.Core.Generated.ShaRpcGeneratedMethod[] s_service1Methods =
+        {
+            new global::ShaRPC.Core.Generated.ShaRpcGeneratedMethod(
+                "BAsync",
+                "BAsync",
+                typeof(global::System.Threading.Tasks.Task<string>),
+                typeof(string),
+                global::ShaRPC.Core.Generated.ShaRpcGeneratedReturnKind.TaskOfT,
+                false,
+                new global::ShaRPC.Core.Generated.ShaRpcGeneratedParameter[]
+                {
+                }),
+        };
+
         private static readonly global::ShaRPC.Core.Generated.ShaRpcGeneratedService[] s_services =
         {
             new global::ShaRPC.Core.Generated.ShaRpcGeneratedService(
                 typeof(global::Snap.Two.IOne),
                 typeof(global::Snap.Two.OneProxy),
                 typeof(global::Snap.Two.OneDispatcher),
-                "IOne"),
+                "IOne",
+                s_service0Methods),
             new global::ShaRPC.Core.Generated.ShaRpcGeneratedService(
                 typeof(global::Snap.Two.ITwo),
                 typeof(global::Snap.Two.TwoProxy),
                 typeof(global::Snap.Two.TwoDispatcher),
-                "ITwo"),
+                "ITwo",
+                s_service1Methods),
         };
 
         static ShaRpcGenerated()

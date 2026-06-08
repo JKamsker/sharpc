@@ -9,13 +9,52 @@ namespace ShaRPC.Generated
     /// </summary>
     public static class ShaRpcGenerated
     {
+        private static readonly global::ShaRPC.Core.Generated.ShaRpcGeneratedMethod[] s_service0Methods =
+        {
+            new global::ShaRPC.Core.Generated.ShaRpcGeneratedMethod(
+                "AddAsync",
+                "AddAsync",
+                typeof(global::System.Threading.Tasks.ValueTask<int>),
+                typeof(int),
+                global::ShaRPC.Core.Generated.ShaRpcGeneratedReturnKind.ValueTaskOfT,
+                false,
+                new global::ShaRPC.Core.Generated.ShaRpcGeneratedParameter[]
+                {
+                    new global::ShaRPC.Core.Generated.ShaRpcGeneratedParameter(
+                        "a",
+                        typeof(int),
+                        0,
+                        false,
+                        false,
+                        null),
+                    new global::ShaRPC.Core.Generated.ShaRpcGeneratedParameter(
+                        "b",
+                        typeof(int),
+                        1,
+                        false,
+                        false,
+                        null),
+                }),
+            new global::ShaRPC.Core.Generated.ShaRpcGeneratedMethod(
+                "PingAsync",
+                "PingAsync",
+                typeof(global::System.Threading.Tasks.ValueTask),
+                null,
+                global::ShaRPC.Core.Generated.ShaRpcGeneratedReturnKind.ValueTask,
+                false,
+                new global::ShaRPC.Core.Generated.ShaRpcGeneratedParameter[]
+                {
+                }),
+        };
+
         private static readonly global::ShaRPC.Core.Generated.ShaRpcGeneratedService[] s_services =
         {
             new global::ShaRPC.Core.Generated.ShaRpcGeneratedService(
                 typeof(global::Snap.Vt.IVtSnap),
                 typeof(global::Snap.Vt.VtSnapProxy),
                 typeof(global::Snap.Vt.VtSnapDispatcher),
-                "IVtSnap"),
+                "IVtSnap",
+                s_service0Methods),
         };
 
         static ShaRpcGenerated()

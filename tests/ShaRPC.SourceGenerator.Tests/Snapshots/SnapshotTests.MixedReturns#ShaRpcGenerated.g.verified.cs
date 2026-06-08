@@ -9,13 +9,79 @@ namespace ShaRPC.Generated
     /// </summary>
     public static class ShaRpcGenerated
     {
+        private static readonly global::ShaRPC.Core.Generated.ShaRpcGeneratedMethod[] s_service0Methods =
+        {
+            new global::ShaRPC.Core.Generated.ShaRpcGeneratedMethod(
+                "GetNameAsync",
+                "GetNameAsync",
+                typeof(global::System.Threading.Tasks.Task<string>),
+                typeof(string),
+                global::ShaRPC.Core.Generated.ShaRpcGeneratedReturnKind.TaskOfT,
+                false,
+                new global::ShaRPC.Core.Generated.ShaRpcGeneratedParameter[]
+                {
+                }),
+            new global::ShaRPC.Core.Generated.ShaRpcGeneratedMethod(
+                "SaveAsync",
+                "SaveAsync",
+                typeof(global::System.Threading.Tasks.Task),
+                null,
+                global::ShaRPC.Core.Generated.ShaRpcGeneratedReturnKind.Task,
+                false,
+                new global::ShaRPC.Core.Generated.ShaRpcGeneratedParameter[]
+                {
+                    new global::ShaRPC.Core.Generated.ShaRpcGeneratedParameter(
+                        "value",
+                        typeof(string),
+                        0,
+                        false,
+                        false,
+                        null),
+                }),
+            new global::ShaRPC.Core.Generated.ShaRpcGeneratedMethod(
+                "SyncAdd",
+                "SyncAdd",
+                typeof(int),
+                null,
+                global::ShaRPC.Core.Generated.ShaRpcGeneratedReturnKind.Sync,
+                false,
+                new global::ShaRPC.Core.Generated.ShaRpcGeneratedParameter[]
+                {
+                    new global::ShaRPC.Core.Generated.ShaRpcGeneratedParameter(
+                        "a",
+                        typeof(int),
+                        0,
+                        false,
+                        false,
+                        null),
+                    new global::ShaRPC.Core.Generated.ShaRpcGeneratedParameter(
+                        "b",
+                        typeof(int),
+                        1,
+                        false,
+                        false,
+                        null),
+                }),
+            new global::ShaRPC.Core.Generated.ShaRpcGeneratedMethod(
+                "SyncPing",
+                "SyncPing",
+                typeof(void),
+                null,
+                global::ShaRPC.Core.Generated.ShaRpcGeneratedReturnKind.Void,
+                false,
+                new global::ShaRPC.Core.Generated.ShaRpcGeneratedParameter[]
+                {
+                }),
+        };
+
         private static readonly global::ShaRPC.Core.Generated.ShaRpcGeneratedService[] s_services =
         {
             new global::ShaRPC.Core.Generated.ShaRpcGeneratedService(
                 typeof(global::Snap.Mixed.IMix),
                 typeof(global::Snap.Mixed.MixProxy),
                 typeof(global::Snap.Mixed.MixDispatcher),
-                "IMix"),
+                "IMix",
+                s_service0Methods),
         };
 
         static ShaRpcGenerated()

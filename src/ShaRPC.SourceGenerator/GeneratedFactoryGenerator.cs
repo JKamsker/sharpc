@@ -5,7 +5,7 @@ namespace ShaRPC.SourceGenerator;
 
 internal static class GeneratedFactoryGenerator
 {
-    public static string Generate(EquatableArray<ServiceIdentity> services, CancellationToken ct = default)
+    public static string Generate(EquatableArray<ServiceModel> services, CancellationToken ct = default)
     {
         var sb = new StringBuilder();
 
@@ -19,12 +19,15 @@ internal static class GeneratedFactoryGenerator
         sb.AppendLine("    /// </summary>");
         sb.AppendLine("    public static class ShaRpcGenerated");
         sb.AppendLine("    {");
+        GeneratedFactoryMetadataEmitter.AppendMethodArrays(sb, services, ct);
+        sb.AppendLine();
         sb.AppendLine("        private static readonly global::ShaRPC.Core.Generated.ShaRpcGeneratedService[] s_services =");
         sb.AppendLine("        {");
 
-        foreach (var service in services.Array)
+        for (var i = 0; i < services.Array.Length; i++)
         {
             ct.ThrowIfCancellationRequested();
+            var service = services.Array[i];
             var serviceName = NamingHelpers.StripInterfacePrefix(service.InterfaceName);
             var fullInterfaceName = IdentifierHelpers.QualifyTypeName(service.Namespace, service.InterfaceName);
             var fullProxyName = IdentifierHelpers.QualifyTypeName(service.Namespace, serviceName + "Proxy");
@@ -37,7 +40,8 @@ internal static class GeneratedFactoryGenerator
             // service.ServiceName is already escaped at model-build time (ServiceModelFactory),
             // matching every other emission site (proxy/dispatcher). Inserting it directly avoids
             // double-escaping names that contain backslashes, quotes, or control characters.
-            sb.AppendLine($"                \"{service.ServiceName}\"),");
+            sb.AppendLine($"                \"{service.ServiceName}\",");
+            sb.AppendLine($"                {GeneratedFactoryMetadataEmitter.MethodArrayName(i)}),");
         }
 
         sb.AppendLine("        };");

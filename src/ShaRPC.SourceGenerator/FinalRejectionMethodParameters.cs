@@ -28,7 +28,8 @@ internal static class FinalRejectionMethodParameters
             "global::System.Threading.CancellationToken",
             "global::System.Threading.CancellationToken",
             IsCancellationToken: true,
-            HasDefaultValue: true));
+            HasDefaultValue: true,
+            MetadataType: "global::System.Threading.CancellationToken"));
 
         return parameters.ToEquatableArray();
     }

@@ -9,18 +9,55 @@ namespace ShaRPC.Generated
     /// </summary>
     public static class ShaRpcGenerated
     {
+        private static readonly global::ShaRPC.Core.Generated.ShaRpcGeneratedMethod[] s_service0Methods =
+        {
+            new global::ShaRPC.Core.Generated.ShaRpcGeneratedMethod(
+                "GetSubAsync",
+                "GetSubAsync",
+                typeof(global::System.Threading.Tasks.Task<global::Snap.Nested.ISubSnap>),
+                typeof(global::Snap.Nested.ISubSnap),
+                global::ShaRPC.Core.Generated.ShaRpcGeneratedReturnKind.TaskOfNestedService,
+                true,
+                new global::ShaRPC.Core.Generated.ShaRpcGeneratedParameter[]
+                {
+                    new global::ShaRPC.Core.Generated.ShaRpcGeneratedParameter(
+                        "label",
+                        typeof(string),
+                        0,
+                        false,
+                        false,
+                        null),
+                }),
+        };
+
+        private static readonly global::ShaRPC.Core.Generated.ShaRpcGeneratedMethod[] s_service1Methods =
+        {
+            new global::ShaRPC.Core.Generated.ShaRpcGeneratedMethod(
+                "CountAsync",
+                "CountAsync",
+                typeof(global::System.Threading.Tasks.Task<int>),
+                typeof(int),
+                global::ShaRPC.Core.Generated.ShaRpcGeneratedReturnKind.TaskOfT,
+                false,
+                new global::ShaRPC.Core.Generated.ShaRpcGeneratedParameter[]
+                {
+                }),
+        };
+
         private static readonly global::ShaRPC.Core.Generated.ShaRpcGeneratedService[] s_services =
         {
             new global::ShaRPC.Core.Generated.ShaRpcGeneratedService(
                 typeof(global::Snap.Nested.IRootSnap),
                 typeof(global::Snap.Nested.RootSnapProxy),
                 typeof(global::Snap.Nested.RootSnapDispatcher),
-                "IRootSnap"),
+                "IRootSnap",
+                s_service0Methods),
             new global::ShaRPC.Core.Generated.ShaRpcGeneratedService(
                 typeof(global::Snap.Nested.ISubSnap),
                 typeof(global::Snap.Nested.SubSnapProxy),
                 typeof(global::Snap.Nested.SubSnapDispatcher),
-                "ISubSnap"),
+                "ISubSnap",
+                s_service1Methods),
         };
 
         static ShaRpcGenerated()
