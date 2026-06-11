@@ -95,22 +95,23 @@ await host.StartAsync();
 
 ### 3. Call the Service
 
-The caller connects a transport, wraps the connection in an `RpcPeer`, and asks
-the generator for a proxy via `Get{Service}`. `RejectInboundCalls = true`
+The caller connects a transport as a peer session and asks the generator for a
+proxy via `Get{Service}`. `RejectInboundCalls = true`
 declares a call-only peer that refuses any callbacks from the other side:
 
 ```csharp
 var transport = new TcpTransport("localhost", 7777);
-await transport.ConnectAsync();
+await using var session = await transport.ConnectPeerAsync(
+    new MessagePackRpcSerializer(),
+    new RpcPeerOptions { RejectInboundCalls = true });
 
-await using var peer = RpcPeer
-    .Over(transport.Connection!, new MessagePackRpcSerializer(),
-          new RpcPeerOptions { RejectInboundCalls = true })
-    .Start();
-
-var gameService = peer.GetGameService();
+var gameService = session.Peer.GetGameService();
 var player = await gameService.JoinAsync("Player1");
 ```
+
+`RpcPeerSession` owns both the connected transport and the peer, so disposing the
+session closes both. If you already have an `IRpcChannel`, use
+`RpcPeer.Over(channel, serializer)` directly.
 
 ### Bidirectional Peer
 

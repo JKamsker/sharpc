@@ -36,9 +36,9 @@ Task<Result> MyMethodAsync(Request req, CancellationToken ct = default);
 
 ### Caller (single connection)
 
-A caller is just an `RpcPeer` created over an already-connected channel. There is no separate
-client type or builder: connect a transport, wrap its connection in a peer, get a generated
-proxy, and call.
+A caller is an `RpcPeerSession` over a connected transport, or an `RpcPeer` over an
+already-connected channel. Use the session helper when the peer should own and dispose the
+transport.
 
 ```csharp
 using ShaRPC.Core;
@@ -47,14 +47,11 @@ using ShaRPC.Serializers.MessagePack;
 using ShaRPC.Transports.Tcp;
 
 var transport = new TcpTransport("127.0.0.1", 5000);
-await transport.ConnectAsync();
+await using var session = await transport.ConnectPeerAsync(
+    new MessagePackRpcSerializer(),
+    new RpcPeerOptions { RejectInboundCalls = true });   // get-only intent
 
-await using var peer = RpcPeer
-    .Over(transport.Connection!, new MessagePackRpcSerializer(),
-          new RpcPeerOptions { RejectInboundCalls = true })   // get-only intent
-    .Start();
-
-var svc = peer.GetMyService();
+var svc = session.Peer.GetMyService();
 var result = await svc.DoAsync(/* ... */);
 ```
 
@@ -75,6 +72,19 @@ for the full member list.
 | `Start()` | Begins the read loop (idempotent; invoking a method also starts it) |
 | `IsConnected` | Whether the underlying channel is still connected |
 | `CloseAsync()` / `DisposeAsync()` | Idempotently disposes the peer and underlying channel |
+
+#### `RpcPeerSession`
+Owns a connected `ITransport` and the `RpcPeer` running over it. This is the preferred caller
+shape when integrating host-side IPC packages because it avoids transport-specific wrapper types.
+
+| Factory / member | Description |
+|------------------|-------------|
+| `transport.ConnectPeerAsync(ISerializer, RpcPeerOptions?, CancellationToken)` | Connects a client transport, creates and starts a peer, and returns an owning session |
+| `transport.ConnectPeerAsync(ISerializer, Action<RpcPeer>, RpcPeerOptions?, CancellationToken)` | Same as above, but configures local provided services before the read loop starts |
+| `RpcPeerSession.ConnectAsync(...)` | Static equivalent for callers that prefer factory syntax |
+| `Peer` | The connected peer; use generated `Get...` / `Provide...` extension methods here |
+| `Get<TService>()` | Convenience proxy factory forwarding to `Peer.Get<TService>()` |
+| `DisposeAsync()` | Disposes the peer first, then the transport |
 
 ---
 
@@ -266,6 +276,7 @@ transport.
 | `StreamConnection` | `IRpcChannel` over any duplex `Stream`, including `PipeStream`; reads and writes complete ShaRPC length-prefixed frames |
 | `SingleConnectionTransport` | Client `ITransport` adapter for an already-established `IRpcChannel` |
 | `SingleConnectionServerTransport` | Server `IServerTransport` adapter that accepts one already-established `IRpcChannel` |
+| `RpcPeerSession` | Transport-owned client peer session returned by `ConnectPeerAsync` |
 
 ---
 
@@ -302,11 +313,8 @@ await host.StartAsync();
 
 // Caller side
 var transport = new NamedPipeClientTransport("my-plugin-pipe");
-await transport.ConnectAsync();
-await using var peer = RpcPeer
-    .Over(transport.Connection!, new MessagePackRpcSerializer())
-    .Start();
-var svc = peer.GetMyService();
+await using var session = await transport.ConnectPeerAsync(new MessagePackRpcSerializer());
+var svc = session.Peer.GetMyService();
 ```
 
 ---
