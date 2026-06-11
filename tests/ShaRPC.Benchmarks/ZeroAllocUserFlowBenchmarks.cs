@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using BenchmarkDotNet.Attributes;
 
 namespace ShaRPC.Benchmarks;
@@ -6,281 +5,197 @@ namespace ShaRPC.Benchmarks;
 [MemoryDiagnoser]
 public class ZeroAllocUserFlowBenchmarks
 {
-    private const int HeaderSize = 8;
-    private const int RegisterRoute = 1;
-    private const int MoveRoute = 2;
-    private const int StatusRoute = 3;
-
-    private readonly FastGameService _service = new();
-    private readonly byte[] _registerFrame = new byte[HeaderSize + RegisterPlayerRequest.Size];
-    private readonly byte[] _moveFrame = new byte[HeaderSize + MovePlayerRequest.Size];
-    private readonly byte[] _statusFrame = new byte[HeaderSize];
-    private readonly byte[] _singleResponseFrame = new byte[HeaderSize + PlayerStateValue.Size];
+    private readonly ZeroAllocGameService _service = new();
+    private readonly byte[] _registerFrame = new byte[ZeroAllocProtocol.HeaderSize + RegisterPlayerRequest.Size];
+    private readonly byte[] _moveFrame = new byte[ZeroAllocProtocol.HeaderSize + MovePlayerRequest.Size];
+    private readonly byte[] _statusFrame = new byte[ZeroAllocProtocol.HeaderSize];
+    private readonly byte[] _getStateFrame = new byte[ZeroAllocProtocol.HeaderSize + GetPlayerStateRequest.Size];
+    private readonly byte[] _missingStateFrame = new byte[ZeroAllocProtocol.HeaderSize + GetPlayerStateRequest.Size];
+    private readonly byte[] _actionFrame = new byte[ZeroAllocProtocol.HeaderSize + PerformActionRequest.Size];
+    private readonly byte[] _heartbeatFrame = new byte[ZeroAllocProtocol.HeaderSize + HeartbeatRequest.Size];
+    private readonly byte[] _playerResponseFrame = new byte[ZeroAllocProtocol.HeaderSize + PlayerStateValue.Size];
+    private readonly byte[] _actionResponseFrame = new byte[ZeroAllocProtocol.HeaderSize + ActionResultValue.Size];
+    private readonly byte[] _statusResponseFrame = new byte[ZeroAllocProtocol.HeaderSize + ServerStatusValue.Size];
+    private readonly byte[] _ackResponseFrame = new byte[ZeroAllocProtocol.HeaderSize];
     private readonly byte[] _sessionResponseFrames = new byte[
-        (HeaderSize + PlayerStateValue.Size) +
-        (HeaderSize + ActionResultValue.Size) +
-        (HeaderSize + ServerStatusValue.Size)];
+        (ZeroAllocProtocol.HeaderSize + PlayerStateValue.Size) +
+        (ZeroAllocProtocol.HeaderSize + PlayerStateValue.Size) +
+        (ZeroAllocProtocol.HeaderSize + ActionResultValue.Size) +
+        (ZeroAllocProtocol.HeaderSize + ActionResultValue.Size) +
+        (ZeroAllocProtocol.HeaderSize + ServerStatusValue.Size) +
+        ZeroAllocProtocol.HeaderSize];
 
     [GlobalSetup]
     public void Setup()
     {
         var player = _service.Register(new RegisterPlayerRequest(nameToken: 1001));
-        WriteFrame(_registerFrame, RegisterRoute, RegisterPlayerRequest.Size);
-        RegisterPlayerRequest.Write(_registerFrame.AsSpan(HeaderSize), new RegisterPlayerRequest(1001));
-
-        WriteFrame(_moveFrame, MoveRoute, MovePlayerRequest.Size);
-        MovePlayerRequest.Write(_moveFrame.AsSpan(HeaderSize), new MovePlayerRequest(player.PlayerId, 10, 20, 30));
-
-        WriteFrame(_statusFrame, StatusRoute, payloadLength: 0);
+        Write(_registerFrame, ZeroAllocProtocol.RegisterRoute, new RegisterPlayerRequest(1001));
+        Write(_moveFrame, ZeroAllocProtocol.MoveRoute, new MovePlayerRequest(player.PlayerId, 10, 20, 30));
+        Write(_getStateFrame, ZeroAllocProtocol.GetStateRoute, new GetPlayerStateRequest(player.PlayerId));
+        Write(_missingStateFrame, ZeroAllocProtocol.GetStateRoute, new GetPlayerStateRequest(404));
+        Write(_actionFrame, ZeroAllocProtocol.ActionRoute, new PerformActionRequest(player.PlayerId, 7, 99));
+        Write(_heartbeatFrame, ZeroAllocProtocol.HeartbeatRoute, new HeartbeatRequest(player.PlayerId, 123));
+        ZeroAllocProtocol.WriteFrame(_statusFrame, ZeroAllocProtocol.StatusRoute, payloadLength: 0);
     }
 
     [Benchmark]
     public int RegisterPlayerFlow()
     {
-        var request = RegisterPlayerRequest.Read(ReadPayload(_registerFrame, RegisterRoute));
-        var player = _service.Register(request);
-        return WritePlayerStateResponse(_singleResponseFrame, RegisterRoute, player);
+        var request = RegisterPlayerRequest.Read(
+            ZeroAllocProtocol.ReadPayload(_registerFrame, ZeroAllocProtocol.RegisterRoute));
+        return ZeroAllocProtocol.WritePlayerStateResponse(
+            _playerResponseFrame,
+            ZeroAllocProtocol.RegisterRoute,
+            _service.Register(request));
+    }
+
+    [Benchmark]
+    public int GetPlayerStateFlow()
+    {
+        var request = GetPlayerStateRequest.Read(
+            ZeroAllocProtocol.ReadPayload(_getStateFrame, ZeroAllocProtocol.GetStateRoute));
+        _service.TryGetPlayerState(request, out var player);
+        return ZeroAllocProtocol.WritePlayerStateResponse(
+            _playerResponseFrame,
+            ZeroAllocProtocol.GetStateRoute,
+            player);
     }
 
     [Benchmark]
     public int MovePlayerFlow()
     {
-        var request = MovePlayerRequest.Read(ReadPayload(_moveFrame, MoveRoute));
-        var result = _service.Move(request);
-        return WriteActionResultResponse(_singleResponseFrame, MoveRoute, result);
+        var request = MovePlayerRequest.Read(
+            ZeroAllocProtocol.ReadPayload(_moveFrame, ZeroAllocProtocol.MoveRoute));
+        return ZeroAllocProtocol.WriteActionResultResponse(
+            _actionResponseFrame,
+            ZeroAllocProtocol.MoveRoute,
+            _service.Move(request));
     }
 
     [Benchmark]
-    public int RegisterMoveStatusSessionFlow()
+    public int PerformActionFlow()
+    {
+        var request = PerformActionRequest.Read(
+            ZeroAllocProtocol.ReadPayload(_actionFrame, ZeroAllocProtocol.ActionRoute));
+        return ZeroAllocProtocol.WriteActionResultResponse(
+            _actionResponseFrame,
+            ZeroAllocProtocol.ActionRoute,
+            _service.PerformAction(request));
+    }
+
+    [Benchmark]
+    public int MissingPlayerFailureFlow()
+    {
+        var request = GetPlayerStateRequest.Read(
+            ZeroAllocProtocol.ReadPayload(_missingStateFrame, ZeroAllocProtocol.GetStateRoute));
+        var result = _service.TryGetPlayerState(request, out _);
+        return ZeroAllocProtocol.WriteActionResultResponse(
+            _actionResponseFrame,
+            ZeroAllocProtocol.GetStateRoute,
+            result);
+    }
+
+    [Benchmark]
+    public int VoidHeartbeatFlow()
+    {
+        var request = HeartbeatRequest.Read(
+            ZeroAllocProtocol.ReadPayload(_heartbeatFrame, ZeroAllocProtocol.HeartbeatRoute));
+        _service.Heartbeat(request);
+        return ZeroAllocProtocol.WriteAckResponse(_ackResponseFrame, ZeroAllocProtocol.HeartbeatRoute);
+    }
+
+    [Benchmark]
+    public int FullGameplaySessionFlow()
     {
         var output = _sessionResponseFrames.AsSpan();
-
-        var register = RegisterPlayerRequest.Read(ReadPayload(_registerFrame, RegisterRoute));
-        var player = _service.Register(register);
-        var written = WritePlayerStateResponse(output, RegisterRoute, player);
-
-        var move = MovePlayerRequest.Read(ReadPayload(_moveFrame, MoveRoute));
-        var moveResult = _service.Move(move);
-        written += WriteActionResultResponse(output.Slice(written), MoveRoute, moveResult);
-
-        ReadPayload(_statusFrame, StatusRoute);
-        var status = _service.GetStatus();
-        written += WriteServerStatusResponse(output.Slice(written), StatusRoute, status);
+        var written = Register(output);
+        written += GetState(output.Slice(written));
+        written += Move(output.Slice(written));
+        written += PerformAction(output.Slice(written));
+        written += WriteStatus(output.Slice(written));
+        written += Heartbeat(output.Slice(written));
         return written;
     }
 
-    private static ReadOnlySpan<byte> ReadPayload(ReadOnlySpan<byte> frame, int expectedRoute)
+    private int Register(Span<byte> output)
     {
-        var length = BinaryPrimitives.ReadInt32LittleEndian(frame);
-        var route = BinaryPrimitives.ReadInt32LittleEndian(frame.Slice(4));
-        if (length != frame.Length || route != expectedRoute)
-        {
-            throw new InvalidOperationException("Invalid benchmark frame.");
-        }
-
-        return frame.Slice(HeaderSize);
+        var request = RegisterPlayerRequest.Read(
+            ZeroAllocProtocol.ReadPayload(_registerFrame, ZeroAllocProtocol.RegisterRoute));
+        return ZeroAllocProtocol.WritePlayerStateResponse(
+            output,
+            ZeroAllocProtocol.RegisterRoute,
+            _service.Register(request));
     }
 
-    private static int WritePlayerStateResponse(Span<byte> frame, int route, PlayerStateValue player)
+    private int GetState(Span<byte> output)
     {
-        WriteFrame(frame, route, PlayerStateValue.Size);
-        PlayerStateValue.Write(frame.Slice(HeaderSize), player);
-        return HeaderSize + PlayerStateValue.Size;
+        var request = GetPlayerStateRequest.Read(
+            ZeroAllocProtocol.ReadPayload(_getStateFrame, ZeroAllocProtocol.GetStateRoute));
+        _service.TryGetPlayerState(request, out var player);
+        return ZeroAllocProtocol.WritePlayerStateResponse(output, ZeroAllocProtocol.GetStateRoute, player);
     }
 
-    private static int WriteActionResultResponse(Span<byte> frame, int route, ActionResultValue result)
+    private int Move(Span<byte> output)
     {
-        WriteFrame(frame, route, ActionResultValue.Size);
-        ActionResultValue.Write(frame.Slice(HeaderSize), result);
-        return HeaderSize + ActionResultValue.Size;
+        var request = MovePlayerRequest.Read(
+            ZeroAllocProtocol.ReadPayload(_moveFrame, ZeroAllocProtocol.MoveRoute));
+        return ZeroAllocProtocol.WriteActionResultResponse(output, ZeroAllocProtocol.MoveRoute, _service.Move(request));
     }
 
-    private static int WriteServerStatusResponse(Span<byte> frame, int route, ServerStatusValue status)
+    private int PerformAction(Span<byte> output)
     {
-        WriteFrame(frame, route, ServerStatusValue.Size);
-        ServerStatusValue.Write(frame.Slice(HeaderSize), status);
-        return HeaderSize + ServerStatusValue.Size;
+        var request = PerformActionRequest.Read(
+            ZeroAllocProtocol.ReadPayload(_actionFrame, ZeroAllocProtocol.ActionRoute));
+        return ZeroAllocProtocol.WriteActionResultResponse(
+            output,
+            ZeroAllocProtocol.ActionRoute,
+            _service.PerformAction(request));
     }
 
-    private static void WriteFrame(Span<byte> frame, int route, int payloadLength)
+    private int WriteStatus(Span<byte> output)
     {
-        BinaryPrimitives.WriteInt32LittleEndian(frame, HeaderSize + payloadLength);
-        BinaryPrimitives.WriteInt32LittleEndian(frame.Slice(4), route);
+        ZeroAllocProtocol.ReadPayload(_statusFrame, ZeroAllocProtocol.StatusRoute);
+        return ZeroAllocProtocol.WriteServerStatusResponse(
+            output,
+            ZeroAllocProtocol.StatusRoute,
+            _service.GetStatus());
     }
 
-    private sealed class FastGameService
+    private int Heartbeat(Span<byte> output)
     {
-        private PlayerStateValue _player;
-        private int _registered;
-
-        public PlayerStateValue Register(RegisterPlayerRequest request)
-        {
-            _registered = 1;
-            _player = new PlayerStateValue(1, request.NameToken, 1, 100, 100, 0, 0, 0);
-            return _player;
-        }
-
-        public ActionResultValue Move(MovePlayerRequest request)
-        {
-            if (_registered == 0 || request.PlayerId != _player.PlayerId)
-            {
-                return new ActionResultValue(success: 0, code: 404);
-            }
-
-            _player = _player.WithPosition(request.X, request.Y, request.Z);
-            return new ActionResultValue(success: 1, code: 0);
-        }
-
-        public ServerStatusValue GetStatus() =>
-            new(_registered, tick: 1, versionMajor: 1, versionMinor: 0);
+        var request = HeartbeatRequest.Read(
+            ZeroAllocProtocol.ReadPayload(_heartbeatFrame, ZeroAllocProtocol.HeartbeatRoute));
+        _service.Heartbeat(request);
+        return ZeroAllocProtocol.WriteAckResponse(output, ZeroAllocProtocol.HeartbeatRoute);
     }
 
-    private readonly struct RegisterPlayerRequest
+    private static void Write(Span<byte> frame, int route, RegisterPlayerRequest request)
     {
-        public const int Size = 4;
-
-        public RegisterPlayerRequest(int nameToken) => NameToken = nameToken;
-
-        public int NameToken { get; }
-
-        public static RegisterPlayerRequest Read(ReadOnlySpan<byte> source) =>
-            new(BinaryPrimitives.ReadInt32LittleEndian(source));
-
-        public static void Write(Span<byte> destination, RegisterPlayerRequest value) =>
-            BinaryPrimitives.WriteInt32LittleEndian(destination, value.NameToken);
+        ZeroAllocProtocol.WriteFrame(frame, route, RegisterPlayerRequest.Size);
+        RegisterPlayerRequest.Write(frame.Slice(ZeroAllocProtocol.HeaderSize), request);
     }
 
-    private readonly struct MovePlayerRequest
+    private static void Write(Span<byte> frame, int route, MovePlayerRequest request)
     {
-        public const int Size = 16;
-
-        public MovePlayerRequest(int playerId, float x, float y, float z)
-        {
-            PlayerId = playerId;
-            X = x;
-            Y = y;
-            Z = z;
-        }
-
-        public int PlayerId { get; }
-        public float X { get; }
-        public float Y { get; }
-        public float Z { get; }
-
-        public static MovePlayerRequest Read(ReadOnlySpan<byte> source) =>
-            new(
-                BinaryPrimitives.ReadInt32LittleEndian(source),
-                ReadSingle(source.Slice(4)),
-                ReadSingle(source.Slice(8)),
-                ReadSingle(source.Slice(12)));
-
-        public static void Write(Span<byte> destination, MovePlayerRequest value)
-        {
-            BinaryPrimitives.WriteInt32LittleEndian(destination, value.PlayerId);
-            WriteSingle(destination.Slice(4), value.X);
-            WriteSingle(destination.Slice(8), value.Y);
-            WriteSingle(destination.Slice(12), value.Z);
-        }
+        ZeroAllocProtocol.WriteFrame(frame, route, MovePlayerRequest.Size);
+        MovePlayerRequest.Write(frame.Slice(ZeroAllocProtocol.HeaderSize), request);
     }
 
-    private readonly struct PlayerStateValue
+    private static void Write(Span<byte> frame, int route, GetPlayerStateRequest request)
     {
-        public const int Size = 32;
-
-        public PlayerStateValue(
-            int playerId,
-            int nameToken,
-            int level,
-            int health,
-            int maxHealth,
-            float x,
-            float y,
-            float z)
-        {
-            PlayerId = playerId;
-            NameToken = nameToken;
-            Level = level;
-            Health = health;
-            MaxHealth = maxHealth;
-            X = x;
-            Y = y;
-            Z = z;
-        }
-
-        public int PlayerId { get; }
-        public int NameToken { get; }
-        public int Level { get; }
-        public int Health { get; }
-        public int MaxHealth { get; }
-        public float X { get; }
-        public float Y { get; }
-        public float Z { get; }
-
-        public PlayerStateValue WithPosition(float x, float y, float z) =>
-            new(PlayerId, NameToken, Level, Health, MaxHealth, x, y, z);
-
-        public static void Write(Span<byte> destination, PlayerStateValue value)
-        {
-            BinaryPrimitives.WriteInt32LittleEndian(destination, value.PlayerId);
-            BinaryPrimitives.WriteInt32LittleEndian(destination.Slice(4), value.NameToken);
-            BinaryPrimitives.WriteInt32LittleEndian(destination.Slice(8), value.Level);
-            BinaryPrimitives.WriteInt32LittleEndian(destination.Slice(12), value.Health);
-            BinaryPrimitives.WriteInt32LittleEndian(destination.Slice(16), value.MaxHealth);
-            WriteSingle(destination.Slice(20), value.X);
-            WriteSingle(destination.Slice(24), value.Y);
-            WriteSingle(destination.Slice(28), value.Z);
-        }
+        ZeroAllocProtocol.WriteFrame(frame, route, GetPlayerStateRequest.Size);
+        GetPlayerStateRequest.Write(frame.Slice(ZeroAllocProtocol.HeaderSize), request);
     }
 
-    private readonly struct ActionResultValue
+    private static void Write(Span<byte> frame, int route, PerformActionRequest request)
     {
-        public const int Size = 8;
-
-        public ActionResultValue(int success, int code)
-        {
-            Success = success;
-            Code = code;
-        }
-
-        public int Success { get; }
-        public int Code { get; }
-
-        public static void Write(Span<byte> destination, ActionResultValue value)
-        {
-            BinaryPrimitives.WriteInt32LittleEndian(destination, value.Success);
-            BinaryPrimitives.WriteInt32LittleEndian(destination.Slice(4), value.Code);
-        }
+        ZeroAllocProtocol.WriteFrame(frame, route, PerformActionRequest.Size);
+        PerformActionRequest.Write(frame.Slice(ZeroAllocProtocol.HeaderSize), request);
     }
 
-    private readonly struct ServerStatusValue
+    private static void Write(Span<byte> frame, int route, HeartbeatRequest request)
     {
-        public const int Size = 20;
-
-        public ServerStatusValue(int playerCount, long tick, int versionMajor, int versionMinor)
-        {
-            PlayerCount = playerCount;
-            Tick = tick;
-            VersionMajor = versionMajor;
-            VersionMinor = versionMinor;
-        }
-
-        public int PlayerCount { get; }
-        public long Tick { get; }
-        public int VersionMajor { get; }
-        public int VersionMinor { get; }
-
-        public static void Write(Span<byte> destination, ServerStatusValue value)
-        {
-            BinaryPrimitives.WriteInt32LittleEndian(destination, value.PlayerCount);
-            BinaryPrimitives.WriteInt64LittleEndian(destination.Slice(4), value.Tick);
-            BinaryPrimitives.WriteInt32LittleEndian(destination.Slice(12), value.VersionMajor);
-            BinaryPrimitives.WriteInt32LittleEndian(destination.Slice(16), value.VersionMinor);
-        }
+        ZeroAllocProtocol.WriteFrame(frame, route, HeartbeatRequest.Size);
+        HeartbeatRequest.Write(frame.Slice(ZeroAllocProtocol.HeaderSize), request);
     }
-
-    private static float ReadSingle(ReadOnlySpan<byte> source) =>
-        BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(source));
-
-    private static void WriteSingle(Span<byte> destination, float value) =>
-        BinaryPrimitives.WriteInt32LittleEndian(destination, BitConverter.SingleToInt32Bits(value));
 }
