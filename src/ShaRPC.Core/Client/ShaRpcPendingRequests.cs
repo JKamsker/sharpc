@@ -9,7 +9,7 @@ internal sealed class ShaRpcPendingRequests : IDisposable
 {
     private readonly object _requestsGate = new();
     private readonly object _timeoutGate = new();
-    private readonly Dictionary<int, PendingResponse> _requests = new();
+    private readonly Dictionary<int, IPendingResponse> _requests = new();
     private readonly Timer _timeoutTimer;
     private long _nextTimeoutTimestamp = long.MaxValue;
     private int _disposed;
@@ -34,32 +34,39 @@ internal sealed class ShaRpcPendingRequests : IDisposable
         }
     }
 
-    public bool TryAdd(int messageId, out PendingResponse pending)
+    public bool TryAdd(int messageId, out PendingReceivedResponse pending) =>
+        TryAddCore(messageId, new PendingReceivedResponse(this, messageId), out pending);
+
+    public bool TryAddUnary<TResponse>(int messageId, out PendingUnaryResponse<TResponse> pending) =>
+        TryAddCore(messageId, new PendingUnaryResponse<TResponse>(this, messageId), out pending);
+
+    private bool TryAddCore<TPending>(int messageId, TPending candidate, out TPending pending)
+        where TPending : IPendingResponse
     {
-        pending = new PendingResponse(this, messageId);
         lock (_requestsGate)
         {
             if (!_requests.ContainsKey(messageId))
             {
-                _requests.Add(messageId, pending);
+                _requests.Add(messageId, candidate);
+                pending = candidate;
                 return true;
             }
         }
 
-        pending = null!;
+        pending = default!;
         return false;
     }
 
-    public void Remove(int messageId, PendingResponse pending, bool consumed)
+    public void Remove(int messageId, IPendingResponse pending, bool consumed)
     {
         TryRemove(messageId, pending);
         if (!consumed)
         {
-            ReceivedResponse.DisposeWhenAvailable(pending.Task);
+            pending.DisposeResultWhenAvailable();
         }
     }
 
-    public bool TryTake(int messageId, out PendingResponse pending)
+    public bool TryTake(int messageId, out IPendingResponse pending)
     {
         lock (_requestsGate)
         {
@@ -73,7 +80,7 @@ internal sealed class ShaRpcPendingRequests : IDisposable
         }
     }
 
-    public void StartTimeout(PendingResponse pending, TimeSpan timeout)
+    public void StartTimeout(IPendingResponse pending, TimeSpan timeout)
     {
         if (timeout == Timeout.InfiniteTimeSpan)
         {
@@ -86,27 +93,6 @@ internal sealed class ShaRpcPendingRequests : IDisposable
         ScheduleTimeout(deadline);
     }
 
-    public bool TryComplete(
-        int messageId,
-        RpcResponse response,
-        ReadOnlyMemory<byte> payload,
-        Payload frame,
-        RpcStreamReceiver? stream)
-    {
-        if (!TryTake(messageId, out var completion))
-        {
-            return false;
-        }
-
-        var received = new ReceivedResponse(response, payload, frame, stream);
-        if (!completion.TrySetResult(received))
-        {
-            received.Dispose();
-        }
-
-        return true;
-    }
-
     public bool TryFail(int messageId, Exception error)
     {
         if (!TryTake(messageId, out var completion))
@@ -114,7 +100,7 @@ internal sealed class ShaRpcPendingRequests : IDisposable
             return false;
         }
 
-        completion.TrySetException(error);
+        completion.SetError(error);
         return true;
     }
 
@@ -126,7 +112,7 @@ internal sealed class ShaRpcPendingRequests : IDisposable
     /// </summary>
     public bool TryCancel(
         int messageId,
-        PendingResponse pending,
+        IPendingResponse pending,
         PendingCancellationKind kind)
     {
         if (!TryRemove(messageId, pending))
@@ -140,7 +126,7 @@ internal sealed class ShaRpcPendingRequests : IDisposable
 
     public void FailAll(Exception error)
     {
-        PendingResponse[] pending;
+        IPendingResponse[] pending;
         lock (_requestsGate)
         {
             if (_requests.Count == 0)
@@ -148,14 +134,14 @@ internal sealed class ShaRpcPendingRequests : IDisposable
                 return;
             }
 
-            pending = new PendingResponse[_requests.Count];
+            pending = new IPendingResponse[_requests.Count];
             _requests.Values.CopyTo(pending, 0);
             _requests.Clear();
         }
 
         foreach (var request in pending)
         {
-            request.TrySetException(error);
+            request.SetError(error);
         }
     }
 
@@ -200,7 +186,7 @@ internal sealed class ShaRpcPendingRequests : IDisposable
 
         var now = Stopwatch.GetTimestamp();
         var next = long.MaxValue;
-        List<PendingResponse>? expired = null;
+        List<IPendingResponse>? expired = null;
         lock (_requestsGate)
         {
             foreach (var pair in _requests)
@@ -213,7 +199,7 @@ internal sealed class ShaRpcPendingRequests : IDisposable
 
                 if (deadline <= now)
                 {
-                    expired ??= new List<PendingResponse>();
+                    expired ??= new List<IPendingResponse>();
                     expired.Add(pair.Value);
                 }
                 else if (deadline < next)
@@ -277,7 +263,7 @@ internal sealed class ShaRpcPendingRequests : IDisposable
     private static long StopwatchTicksToMilliseconds(long ticks) =>
         ticks * 1000 / Stopwatch.Frequency;
 
-    private bool TryRemove(int messageId, PendingResponse pending)
+    private bool TryRemove(int messageId, IPendingResponse pending)
     {
         lock (_requestsGate)
         {
@@ -285,7 +271,7 @@ internal sealed class ShaRpcPendingRequests : IDisposable
         }
     }
 
-    private bool TryRemoveCore(int messageId, PendingResponse pending)
+    private bool TryRemoveCore(int messageId, IPendingResponse pending)
     {
         if (!_requests.TryGetValue(messageId, out var current) ||
             !ReferenceEquals(current, pending))

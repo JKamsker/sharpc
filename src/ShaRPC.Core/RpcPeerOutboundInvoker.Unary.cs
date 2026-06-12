@@ -14,12 +14,12 @@ internal sealed partial class RpcPeerOutboundInvoker
         string? instanceId,
         CancellationToken ct)
     {
-        PendingResponse pending;
+        PendingUnaryResponse<TResponse> pending;
         try
         {
             ValidateTarget(service, method);
             _ensureStarted();
-            pending = ReservePendingRequest(ct);
+            pending = ReservePendingUnaryRequest<TResponse>(ct);
         }
         catch (Exception ex)
         {
@@ -59,12 +59,12 @@ internal sealed partial class RpcPeerOutboundInvoker
         string? instanceId,
         CancellationToken ct)
     {
-        PendingResponse pending;
+        PendingUnaryResponse<TResponse> pending;
         try
         {
             ValidateTarget(service, method);
             _ensureStarted();
-            pending = ReservePendingRequest(ct);
+            pending = ReservePendingUnaryRequest<TResponse>(ct);
         }
         catch (Exception ex)
         {
@@ -100,7 +100,7 @@ internal sealed partial class RpcPeerOutboundInvoker
 
     private async Task<TResponse> SendFrameAndReadUnaryResponseAsync<TResponse>(
         int messageId,
-        PendingResponse pending,
+        PendingUnaryResponse<TResponse> pending,
         PooledBufferWriter frame,
         string service,
         string method,
@@ -108,7 +108,6 @@ internal sealed partial class RpcPeerOutboundInvoker
     {
         var responseOwned = false;
         var requestSent = false;
-        ReceivedResponse? received = null;
         try
         {
             using (frame)
@@ -118,15 +117,16 @@ internal sealed partial class RpcPeerOutboundInvoker
             }
 
             var callerCancellation = ct.CanBeCanceled
-                ? ct.Register(static state => ((PendingResponse)state!).CancelByCaller(), pending)
+                ? ct.Register(static state => ((IPendingResponse)state!).CancelByCaller(), pending)
                 : default;
             using (callerCancellation)
             {
                 _pending.StartTimeout(pending, _timeout);
                 try
                 {
-                    received = await pending.Task.ConfigureAwait(false);
+                    var response = await pending.Task.ConfigureAwait(false);
                     responseOwned = true;
+                    return response;
                 }
                 catch (OperationCanceledException) when (pending.CancellationKind == PendingCancellationKind.Timeout)
                 {
@@ -150,19 +150,9 @@ internal sealed partial class RpcPeerOutboundInvoker
                 }
             }
 
-            if (!received.Response.IsSuccess)
-            {
-                throw new ShaRpcRemoteException(
-                    received.Response.ErrorMessage ?? "Unknown error",
-                    received.Response.ErrorType ?? "Unknown");
-            }
-
-            EnsureNonStreamingResponse(received);
-            return _serializer.Deserialize<TResponse>(received.Payload);
         }
         finally
         {
-            received?.Dispose();
             _pending.Remove(messageId, pending, responseOwned);
             ReleasePendingSlot();
         }

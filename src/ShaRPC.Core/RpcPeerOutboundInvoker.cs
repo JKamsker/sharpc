@@ -196,22 +196,18 @@ internal sealed partial class RpcPeerOutboundInvoker : IRpcInvoker
         RpcStreamReceiver? stream = null;
         try
         {
-            if (response.Stream is { } handle)
+            if (response.Stream is { } handle &&
+                completion.RegistersStreamingResponse)
             {
                 stream = _streams.RegisterInboundResponse(handle, CancellationToken.None);
             }
 
-            var received = new ReceivedResponse(response, payload, frame, stream);
-            if (!completion.TrySetResult(received))
-            {
-                received.Dispose();
-            }
-
-            return true;
+            return completion.TrySetResponse(response, payload, frame, stream, _serializer);
         }
         catch (Exception ex)
         {
-            completion.TrySetException(ex);
+            stream?.Cancel();
+            completion.SetError(ex);
             return false;
         }
     }
@@ -258,7 +254,7 @@ internal sealed partial class RpcPeerOutboundInvoker : IRpcInvoker
             return DisposeStreamSourcesAndThrowAsync(streams, ex);
         }
 
-        PendingResponse pending;
+        PendingReceivedResponse pending;
         try
         {
             pending = ReservePendingRequest(ct);
@@ -342,53 +338,9 @@ internal sealed partial class RpcPeerOutboundInvoker : IRpcInvoker
         }
     }
 
-    private PendingResponse ReservePendingRequest(CancellationToken ct)
-    {
-        if (Interlocked.Increment(ref _pendingCount) > _maxPendingRequests)
-        {
-            Interlocked.Decrement(ref _pendingCount);
-            throw new ShaRpcException("Maximum pending requests reached.");
-        }
-
-        try
-        {
-            for (var attempts = 0; attempts < _maxPendingRequests; attempts++)
-            {
-                ct.ThrowIfCancellationRequested();
-                var messageId = NextMessageId(ct);
-                if (messageId != 0 && _pending.TryAdd(messageId, out var pending))
-                {
-                    return pending;
-                }
-            }
-
-            throw new ShaRpcException("Unable to reserve a request message id.");
-        }
-        catch
-        {
-            Interlocked.Decrement(ref _pendingCount);
-            throw;
-        }
-    }
-
-    private void ReleasePendingSlot() => Interlocked.Decrement(ref _pendingCount);
-
-    private int NextMessageId(CancellationToken ct)
-    {
-        while (true)
-        {
-            ct.ThrowIfCancellationRequested();
-            var messageId = Interlocked.Increment(ref _messageIdCounter);
-            if (messageId != 0)
-            {
-                return messageId;
-            }
-        }
-    }
-
     private async Task<ReceivedResponse> SendFrameAndAwaitAsync(
         int messageId,
-        PendingResponse pending,
+        PendingReceivedResponse pending,
         PooledBufferWriter frame,
         string service,
         string method,
@@ -412,7 +364,7 @@ internal sealed partial class RpcPeerOutboundInvoker : IRpcInvoker
             // wins and the loser is a guaranteed no-op. Cancelling the TCS directly could win the race
             // against TryComplete and discard an already-delivered response as a spurious timeout.
             var callerCancellation = ct.CanBeCanceled
-                ? ct.Register(static state => ((PendingResponse)state!).CancelByCaller(), pending)
+                ? ct.Register(static state => ((IPendingResponse)state!).CancelByCaller(), pending)
                 : default;
             using (callerCancellation)
             {

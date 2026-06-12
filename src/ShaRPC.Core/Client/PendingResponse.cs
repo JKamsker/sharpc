@@ -1,3 +1,8 @@
+using ShaRPC.Core.Buffers;
+using ShaRPC.Core.Protocol;
+using ShaRPC.Core.Serialization;
+using ShaRPC.Core.Streaming;
+
 namespace ShaRPC.Core.Client;
 
 internal enum PendingCancellationKind
@@ -7,38 +12,30 @@ internal enum PendingCancellationKind
     Timeout,
 }
 
-internal sealed class PendingResponse : TaskCompletionSource<ReceivedResponse>
+internal interface IPendingResponse
 {
-    private readonly ShaRpcPendingRequests _owner;
-    private long _timeoutDeadline = long.MaxValue;
-    private int _cancellationKind;
+    int MessageId { get; }
 
-    public PendingResponse(ShaRpcPendingRequests owner, int messageId)
-        : base(TaskCreationOptions.RunContinuationsAsynchronously)
-    {
-        _owner = owner;
-        MessageId = messageId;
-    }
+    long TimeoutDeadline { get; }
 
-    public int MessageId { get; }
+    PendingCancellationKind CancellationKind { get; }
 
-    public long TimeoutDeadline => Volatile.Read(ref _timeoutDeadline);
+    bool RegistersStreamingResponse { get; }
 
-    public PendingCancellationKind CancellationKind =>
-        (PendingCancellationKind)Volatile.Read(ref _cancellationKind);
+    void SetTimeoutDeadline(long deadline);
 
-    public void SetTimeoutDeadline(long deadline) =>
-        Volatile.Write(ref _timeoutDeadline, deadline);
+    void CancelByCaller();
 
-    public void CancelByCaller() =>
-        _owner.TryCancel(MessageId, this, PendingCancellationKind.Caller);
+    void DisposeResultWhenAvailable();
 
-    private void SetCancellationKind(PendingCancellationKind kind) =>
-        Volatile.Write(ref _cancellationKind, (int)kind);
+    void SetError(Exception error);
 
-    public void TrySetCanceled(PendingCancellationKind kind)
-    {
-        SetCancellationKind(kind);
-        TrySetCanceled();
-    }
+    bool TrySetResponse(
+        RpcResponse response,
+        ReadOnlyMemory<byte> payload,
+        Payload frame,
+        RpcStreamReceiver? stream,
+        ISerializer serializer);
+
+    void TrySetCanceled(PendingCancellationKind kind);
 }
