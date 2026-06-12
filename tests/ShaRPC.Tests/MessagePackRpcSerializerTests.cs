@@ -80,17 +80,17 @@ public class MessagePackRpcSerializerTests
                 : null;
     }
 
-    private sealed class CustomStringFormatter : IMessagePackFormatter<string>
+    internal sealed class CustomStringFormatter : IMessagePackFormatter<string?>
     {
         public int DeserializeCalls { get; private set; }
 
         public void Serialize(
             ref MessagePackWriter writer,
-            string value,
+            string? value,
             MessagePackSerializerOptions options) =>
             writer.Write(value);
 
-        public string Deserialize(
+        public string? Deserialize(
             ref MessagePackReader reader,
             MessagePackSerializerOptions options)
         {

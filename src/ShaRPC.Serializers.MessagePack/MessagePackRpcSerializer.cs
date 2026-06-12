@@ -141,7 +141,7 @@ public sealed class MessagePackRpcSerializer : ISerializer
         }
     }
 
-    private sealed class ReadOnlyMemoryByteFormatter : IMessagePackFormatter<ReadOnlyMemory<byte>>
+    internal sealed class ReadOnlyMemoryByteFormatter : IMessagePackFormatter<ReadOnlyMemory<byte>>
     {
         public static readonly ReadOnlyMemoryByteFormatter Instance = new();
 

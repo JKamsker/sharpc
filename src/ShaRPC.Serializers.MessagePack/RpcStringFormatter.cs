@@ -3,7 +3,7 @@ using MessagePack.Formatters;
 
 namespace ShaRPC.Serializers.MessagePack;
 
-internal sealed class RpcStringFormatter : IMessagePackFormatter<string>
+internal sealed class RpcStringFormatter : IMessagePackFormatter<string?>
 {
     public static readonly RpcStringFormatter Instance = new();
 
@@ -13,7 +13,7 @@ internal sealed class RpcStringFormatter : IMessagePackFormatter<string>
 
     public void Serialize(
         ref MessagePackWriter writer,
-        string value,
+        string? value,
         MessagePackSerializerOptions options)
     {
         if (value is null)
@@ -25,7 +25,7 @@ internal sealed class RpcStringFormatter : IMessagePackFormatter<string>
         writer.Write(value);
     }
 
-    public string Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
+    public string? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
     {
         if (reader.TryReadNil())
         {
