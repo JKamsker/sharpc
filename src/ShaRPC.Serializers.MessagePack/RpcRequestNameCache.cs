@@ -3,22 +3,25 @@ using System.Threading;
 
 namespace ShaRPC.Serializers.MessagePack;
 
-internal static class RpcStringCache
+internal static class RpcRequestNameCache
 {
     private const int MaxEntries = 128;
-    private const int MaxUtf8Bytes = 256;
-    private const int MaxChars = 256;
 
     private static readonly object Gate = new();
     private static Entry[] _entries = Array.Empty<Entry>();
 
-    public static string GetOrAdd(ReadOnlySpan<byte> utf8)
+    public static void Register(string? value)
     {
-        if (utf8.Length > MaxUtf8Bytes)
+        if (value is null)
         {
-            return Encoding.UTF8.GetString(utf8);
+            return;
         }
 
+        GetOrAdd(value);
+    }
+
+    public static string GetOrAdd(ReadOnlySpan<byte> utf8)
+    {
         var entries = Volatile.Read(ref _entries);
         for (var i = 0; i < entries.Length; i++)
         {
@@ -33,11 +36,6 @@ internal static class RpcStringCache
 
     public static string GetOrAdd(string value)
     {
-        if (value.Length > MaxChars)
-        {
-            return value;
-        }
-
         var entries = Volatile.Read(ref _entries);
         for (var i = 0; i < entries.Length; i++)
         {

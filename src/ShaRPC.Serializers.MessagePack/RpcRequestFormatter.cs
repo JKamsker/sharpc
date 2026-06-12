@@ -24,8 +24,8 @@ internal sealed class RpcRequestFormatter : IMessagePackFormatter<RpcRequest>
         RpcRequest value,
         MessagePackSerializerOptions options)
     {
-        RpcStringCache.Register(value.ServiceName);
-        RpcStringCache.Register(value.MethodName);
+        RpcRequestNameCache.Register(value.ServiceName);
+        RpcRequestNameCache.Register(value.MethodName);
 
         writer.WriteMapHeader(5);
         writer.WriteString(MessageIdKey);
@@ -100,8 +100,8 @@ internal sealed class RpcRequestFormatter : IMessagePackFormatter<RpcRequest>
         }
 
         return reader.TryReadStringSpan(out var utf8)
-            ? RpcStringCache.GetOrAdd(utf8)
-            : RpcStringCache.GetOrAdd(reader.ReadString()!);
+            ? RpcRequestNameCache.GetOrAdd(utf8)
+            : RpcRequestNameCache.GetOrAdd(reader.ReadString()!);
     }
 
     private static RpcRequestField ReadField(ref MessagePackReader reader)
