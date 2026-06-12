@@ -39,6 +39,7 @@ internal sealed class ShaRpcPendingRequests : IDisposable
 
     public bool TryAddUnary<TResponse>(
         int messageId,
+        bool captureCallerCancellation,
         bool captureTimeoutTarget,
         string service,
         string method,
@@ -46,7 +47,9 @@ internal sealed class ShaRpcPendingRequests : IDisposable
     {
         var candidate = captureTimeoutTarget
             ? new PendingUnaryResponseWithTimeout<TResponse>(this, messageId, service, method)
-            : new PendingUnaryResponse<TResponse>(this, messageId);
+            : captureCallerCancellation
+                ? new CancellablePendingUnaryResponse<TResponse>(this, messageId)
+                : new PendingUnaryResponse<TResponse>(messageId);
 
         return TryAddCore(messageId, candidate, out pending);
     }

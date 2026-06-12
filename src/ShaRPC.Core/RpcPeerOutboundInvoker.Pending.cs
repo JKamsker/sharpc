@@ -52,6 +52,7 @@ internal sealed partial class RpcPeerOutboundInvoker
                 if (messageId != 0 &&
                     _pending.TryAddUnary<TResponse>(
                         messageId,
+                        ct.CanBeCanceled,
                         _timeout != Timeout.InfiniteTimeSpan,
                         service,
                         method,

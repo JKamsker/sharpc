@@ -10,15 +10,12 @@ internal class PendingUnaryResponse<TResponse> :
     TaskCompletionSource<TResponse>,
     IPendingResponse
 {
-    private readonly ShaRpcPendingRequests _owner;
     private RpcPeerOutboundInvoker? _directOwner;
-    private int _cancellationKind;
     private int _completed;
 
-    public PendingUnaryResponse(ShaRpcPendingRequests owner, int messageId)
+    public PendingUnaryResponse(int messageId)
         : base(TaskCreationOptions.RunContinuationsAsynchronously)
     {
-        _owner = owner;
         MessageId = messageId;
     }
 
@@ -26,8 +23,7 @@ internal class PendingUnaryResponse<TResponse> :
 
     public virtual long TimeoutDeadline => long.MaxValue;
 
-    public PendingCancellationKind CancellationKind =>
-        (PendingCancellationKind)Volatile.Read(ref _cancellationKind);
+    public virtual PendingCancellationKind CancellationKind => PendingCancellationKind.None;
 
     public bool RegistersStreamingResponse => false;
 
@@ -35,8 +31,9 @@ internal class PendingUnaryResponse<TResponse> :
     {
     }
 
-    public void CancelByCaller() =>
-        _owner.TryCancel(MessageId, this, PendingCancellationKind.Caller);
+    public virtual void CancelByCaller()
+    {
+    }
 
     public void DisposeResultWhenAvailable()
     {
@@ -92,9 +89,8 @@ internal class PendingUnaryResponse<TResponse> :
         return true;
     }
 
-    public void TrySetCanceled(PendingCancellationKind kind)
+    public virtual void TrySetCanceled(PendingCancellationKind kind)
     {
-        Volatile.Write(ref _cancellationKind, (int)kind);
         if (!IsDirectCompletion)
         {
             TrySetCanceled();
@@ -148,8 +144,33 @@ internal class PendingUnaryResponse<TResponse> :
     }
 }
 
-internal sealed class PendingUnaryResponseWithTimeout<TResponse> :
+internal class CancellablePendingUnaryResponse<TResponse> :
     PendingUnaryResponse<TResponse>
+{
+    private readonly ShaRpcPendingRequests _owner;
+    private int _cancellationKind;
+
+    public CancellablePendingUnaryResponse(ShaRpcPendingRequests owner, int messageId)
+        : base(messageId)
+    {
+        _owner = owner;
+    }
+
+    public override PendingCancellationKind CancellationKind =>
+        (PendingCancellationKind)Volatile.Read(ref _cancellationKind);
+
+    public override void CancelByCaller() =>
+        _owner.TryCancel(MessageId, this, PendingCancellationKind.Caller);
+
+    public override void TrySetCanceled(PendingCancellationKind kind)
+    {
+        Volatile.Write(ref _cancellationKind, (int)kind);
+        base.TrySetCanceled(kind);
+    }
+}
+
+internal sealed class PendingUnaryResponseWithTimeout<TResponse> :
+    CancellablePendingUnaryResponse<TResponse>
 {
     private readonly string _service;
     private readonly string _method;
